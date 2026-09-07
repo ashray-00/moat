@@ -47,3 +47,13 @@ CREATE TABLE facts (
     form TEXT,
     PRIMARY KEY (cik, tag, fy, period_end)
 );
+
+CREATE TABLE answer_cache (
+    id BIGSERIAL PRIMARY KEY,
+    query TEXT,
+    answer TEXT,
+    embedding VECTOR(1536),
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX answer_cache_emb_idx ON answer_cache USING hnsw (embedding vector_cosine_ops);
