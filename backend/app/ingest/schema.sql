@@ -58,6 +58,21 @@ CREATE TABLE IF NOT EXISTS answer_cache (
 
 CREATE INDEX answer_cache_emb_idx ON answer_cache USING hnsw (embedding vector_cosine_ops);
 
+CREATE TABLE IF NOT EXISTS watchlist (
+    user_id TEXT,
+    ticker TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (user_id, ticker)
+);
+
+CREATE TABLE IF NOT EXISTS session_summaries (
+    user_id TEXT,
+    thread_id TEXT,
+    summary TEXT,
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (user_id, thread_id)
+);
+
 CREATE TABLE IF NOT EXISTS usage_log (
     id BIGSERIAL PRIMARY KEY,
     user_id TEXT,
