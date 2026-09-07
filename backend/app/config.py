@@ -23,4 +23,8 @@ class Settings(BaseSettings):
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
 
+    # Auth API base, e.g. https://<project-ref>.supabase.co
+    # (not DATABASE_URL — that is the Postgres host db.<ref>.supabase.co)
+    supabase_url: str = ""
+
 settings = Settings()
