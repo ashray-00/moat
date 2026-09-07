@@ -1,0 +1,30 @@
+name: eval-gate
+on: [pull_request]
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: moat }
+        ports: ["5432:5432"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install uv && uv pip install --system -e backend
+      - name: seed a tiny fixture corpus
+        run: python -m backend.tests.seed_fixtures    # 2-3 filings, deterministic
+      - name: run eval and enforce threshold
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          python - <<'PY'
+          import asyncio, sys
+          from backend.app.evals.run import run_eval
+          r = asyncio.run(run_eval(sample=40))
+          print(r)
+          assert r["factual_accuracy"] >= 0.90, f"factual accuracy regressed: {r}"
+          PY
