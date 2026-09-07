@@ -7,8 +7,8 @@ from app.config import settings
 litellm.drop_params = True
 
 PRICES = {
-    settings.model_flagship: {"in": 3.00, "out": 15.00, "cache_read": 0.30},
-    settings.model_cheap: {"in": 0.25, "out": 1.25, "cache_read": 0.03},
+    settings.model_flagship: {"in": 2.50, "out": 10.00, "cache_read": 1.25},
+    settings.model_cheap: {"in": 0.05, "out": 0.08, "cache_read": 0.0},
 }
 
 @dataclass

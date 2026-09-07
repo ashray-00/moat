@@ -16,7 +16,7 @@ async def answer_stream(query: str, ticker: str | None = None):
         {"role": "system", "content": ANSWER_SYSYTEM.format(context=context)},
         {"role": "user", "content": query}
     ]
-    model = route(query, has_math-False, n_docs=len(chunks))
+    model = route(query, has_math=False, n_docs=len(chunks))
 
     yield {"type": "sources", "sources": [
         {"id": f"c{c['id']}", "ticker": c["ticker"], "section": c["section"]}

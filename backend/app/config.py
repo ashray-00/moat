@@ -9,9 +9,10 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     anthropic_api_key: str = ""
+    groq_api_key: str = ""
 
-    model_flagship: str = "anthropic/claude-sonnet-5"
-    model_cheap: str = "openai/gpt-4o-mini"
+    model_flagship: str = "openai/gpt-4o"
+    model_cheap: str = "groq/llama-3.1-8b-instant"
     embed_model: str = "text-embedding-3-small"
     embed_dim: int = 1536
 
