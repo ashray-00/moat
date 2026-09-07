@@ -1,0 +1,12 @@
+pyproject.toml
+app/config.py
+app/ingest/chunker.py
+app/ingest/edgar.py
+app/ingest/facts.py
+app/ingest/pipeline.py
+moat_backend.egg-info/PKG-INFO
+moat_backend.egg-info/SOURCES.txt
+moat_backend.egg-info/dependency_links.txt
+moat_backend.egg-info/requires.txt
+moat_backend.egg-info/top_level.txt
+worker/seed.py
