@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +16,7 @@ from app.memory.store import load_memory, remember_turn
 from app.obs import langfuse
 from app.safety.guards import input_ok
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -89,7 +91,9 @@ async def ask(body: AskBody, user_id: OptionalUser):
                 try:
                     await remember_turn(user_id, thread_id, body.query, answer_text)
                 except Exception:
-                    pass
+                    logger.exception(
+                        "remember_turn failed user=%s thread=%s", user_id, thread_id
+                    )
         except Exception as exc:
             yield f"data: {json.dumps({'type': 'error', 'message': str(exc) or 'ask failed'})}\n\n"
             return
@@ -103,13 +107,13 @@ async def ask(body: AskBody, user_id: OptionalUser):
                         latency_ms=latency_ms,
                     )
                 except Exception:
-                    pass
+                    logger.exception("log_usage failed user=%s", user_id)
             if langfuse is not None:
                 try:
                     langfuse.update_current_trace(
                         outputs={"answer_len": len(answer_text)}
                     )
                 except Exception:
-                    pass
+                    logger.debug("langfuse update failed", exc_info=True)
 
     return StreamingResponse(event_gen(), media_type="text/event-stream")
