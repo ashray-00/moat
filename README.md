@@ -1,10 +1,10 @@
-# Moat — AI equity research over SEC filings · [Live demo](https://example.com/moat-demo)
+# Moat — AI equity research over SEC filings · [Live demo](https://moat-blond.vercel.app)
 
 Ask natural-language questions about public-company filings and get
 **citation-grounded, streamed** answers backed by real SEC data (10-K / 10-Q
 chunks + XBRL facts).
 
-> Demo link is a placeholder until deploy. Local setup below.
+> Live app: [moat-blond.vercel.app](https://moat-blond.vercel.app) · API: [moat-api-8orl.onrender.com](https://moat-api-8orl.onrender.com/health)
 
 ## Why it's interesting (engineering)
 
