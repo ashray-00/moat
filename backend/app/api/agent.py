@@ -9,12 +9,13 @@ from langchain_core.messages import AIMessage, ToolMessage
 from pydantic import BaseModel, Field
 
 from app.agent.graph import build_agent, is_advice_like
+from app.agent.checkpoint import get_checkpointer, thread_config
 from app.agent.pending import create_pending_run, get_pending_run, resolve_pending
 from app.api.deps import RequiredUser, get_user_plan
-from app.api.limits import enforce_quota, log_usage, plan_rpm
+from app.api.limits import finalize_usage, plan_rpm, reserve_quota
 from app.api.ratelimit import check_rate_limit
 from app.memory.store import load_memory, remember_turn
-from app.obs import langfuse
+from app.obs import flush_langfuse, span_set_io, span_update, trace_span
 from app.safety.guards import (
     input_ok,
     output_ok,
@@ -269,10 +270,11 @@ async def _agent_events(
             return
 
     plan = await get_user_plan(user_id)
+    usage_id: int | None = None
     try:
         check_rate_limit(f"agent:{user_id}", limit=plan_rpm(plan))
         if charge_quota:
-            await enforce_quota(user_id, plan)
+            usage_id = await reserve_quota(user_id, plan)
     except HTTPException as exc:
         yield {"type": "error", "message": str(exc.detail), "status": exc.status_code}
         return
@@ -296,17 +298,39 @@ async def _agent_events(
         # Rewrite/resume transcript may include tool payloads; preserve structure.
         seed = sanitize_chat_messages(seed_messages)
 
-    if langfuse is not None:
-        try:
-            langfuse.update_current_trace(
-                inputs={"query": query, "thread_id": thread_id, "user_id": user_id},
-                tags=["agent"],
-                user_id=user_id,
-            )
-        except Exception:
-            logger.debug("langfuse agent start failed", exc_info=True)
+    with trace_span(
+        "agent",
+        as_type="agent",
+        input={"query": query, "thread_id": thread_id},
+        metadata={"plan": plan},
+        user_id=user_id,
+    ) as root_span:
+        async for ev in _agent_events_traced(
+            query=query,
+            thread_id=thread_id,
+            user_id=user_id,
+            seed=seed,
+            plan=plan,
+            usage_id=usage_id,
+            charge_quota=charge_quota,
+            root_span=root_span,
+        ):
+            yield ev
 
-    agent, usage_acc = build_agent(user_id)
+
+async def _agent_events_traced(
+    *,
+    query: str,
+    thread_id: str,
+    user_id: str,
+    seed: list[dict],
+    plan: str,
+    usage_id: int | None,
+    charge_quota: bool,
+    root_span,
+) -> AsyncIterator[dict[str, Any]]:
+    agent, usage_acc = build_agent(user_id, checkpointer=await get_checkpointer())
+    run_config = thread_config(user_id, thread_id)
     sources: list[dict] = []
     series = None
     seen_source_ids: set[str] = set()
@@ -316,11 +340,14 @@ async def _agent_events(
     run_id = None
     status = "error"
     t0 = time.perf_counter()
+    usage_finalized = False
 
     try:
         try:
             async for event in agent.astream(
-                {"messages": seed}, stream_mode="updates"
+                {"messages": seed},
+                config=run_config,
+                stream_mode="updates",
             ):
                 if not isinstance(event, dict):
                     continue
@@ -363,24 +390,27 @@ async def _agent_events(
                             answer = _content_text(msg.content)
                             if answer:
                                 yield {"type": "answer", "delta": answer}
-        except Exception as exc:
+        except Exception:
             logger.exception("agent failed")
-            yield {"type": "error", "message": f"agent failed: {exc}"}
+            span_update(root_span, level="ERROR", status_message="agent failed")
+            yield {"type": "error", "message": "agent failed"}
             return
 
         wall_ms = int((time.perf_counter() - t0) * 1000)
-        try:
-            await log_usage(
-                user_id,
-                model=usage_acc.get("model") or "agent",
-                tokens_in=int(usage_acc.get("tokens_in") or 0),
-                tokens_out=int(usage_acc.get("tokens_out") or 0),
-                cached_in=int(usage_acc.get("cached_in") or 0),
-                cost_usd=float(usage_acc.get("cost_usd") or 0),
-                latency_ms=int(usage_acc.get("latency_ms") or wall_ms),
-            )
-        except Exception:
-            logger.exception("log_usage failed user=%s", user_id)
+        if usage_id is not None:
+            try:
+                await finalize_usage(
+                    usage_id,
+                    model=usage_acc.get("model") or "agent",
+                    tokens_in=int(usage_acc.get("tokens_in") or 0),
+                    tokens_out=int(usage_acc.get("tokens_out") or 0),
+                    cached_in=int(usage_acc.get("cached_in") or 0),
+                    cost_usd=float(usage_acc.get("cost_usd") or 0),
+                    latency_ms=int(usage_acc.get("latency_ms") or wall_ms),
+                )
+                usage_finalized = True
+            except Exception:
+                logger.exception("finalize_usage failed user=%s", user_id)
 
         if sources:
             yield {"type": "sources", "sources": sources}
@@ -437,21 +467,32 @@ async def _agent_events(
         if run_id:
             done["run_id"] = run_id
         yield done
+        span_update(
+            root_span,
+            output={
+                "status": status,
+                "answer_len": len(answer or ""),
+                "sources": len(sources),
+                "grounding_ok": grounding_ok,
+                "cost_usd": usage_acc.get("cost_usd"),
+                "tokens_in": usage_acc.get("tokens_in"),
+                "tokens_out": usage_acc.get("tokens_out"),
+                "run_id": run_id,
+            },
+        )
+        span_set_io(
+            root_span,
+            input={"query": query, "thread_id": thread_id},
+            output={"status": status, "answer_len": len(answer or "")},
+        )
     finally:
-        if langfuse is not None:
+        if usage_id is not None and not usage_finalized:
             try:
-                langfuse.update_current_trace(
-                    outputs={
-                        "status": status,
-                        "answer_len": len(answer or ""),
-                        "sources": len(sources),
-                        "grounding_ok": grounding_ok,
-                        "cost_usd": usage_acc.get("cost_usd"),
-                        "tokens_in": usage_acc.get("tokens_in"),
-                        "tokens_out": usage_acc.get("tokens_out"),
-                        "run_id": run_id,
-                    },
-                    tags=["agent", status],
+                await finalize_usage(
+                    usage_id,
+                    model=usage_acc.get("model") or "agent_error",
+                    latency_ms=int((time.perf_counter() - t0) * 1000),
                 )
             except Exception:
-                logger.debug("langfuse agent end failed", exc_info=True)
+                logger.exception("finalize_usage cleanup failed user=%s", user_id)
+        flush_langfuse()

@@ -109,11 +109,13 @@ def _route_after_agent(state: MessagesState) -> str:
     return END
 
 
-def build_agent(user_id: str):
+def build_agent(user_id: str, checkpointer=None):
     """Compile a per-user agent. Returns (compiled_graph, usage_accumulator).
 
     usage_accumulator is mutated on each LLM call so the API can log real cost.
-    HITL is handled post-hoc in the API (pending runs), not via LangGraph interrupt.
+    Product HITL (Approve/Rewrite) uses pending runs in the API. When
+    ``checkpointer`` is set (AsyncPostgresSaver), graph state is durable per
+    ``user_id:thread_id``.
     """
     tools = make_agent_tools(user_id)
     openai_tools = [convert_to_openai_tool(t) for t in tools]
@@ -154,7 +156,8 @@ def build_agent(user_id: str):
         {"tools": "tools", END: END},
     )
     g.add_edge("tools", "agent")
-    return g.compile(), usage_acc
+    compiled = g.compile(checkpointer=checkpointer) if checkpointer else g.compile()
+    return compiled, usage_acc
 
 
 _default_graph, _ = build_agent("system")
