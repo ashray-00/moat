@@ -3,7 +3,12 @@ import litellm
 from app.answer.prompts import ANSWER_SYSYTEM, build_context
 from app.gateway.llm import route
 from app.retrieval.rerank import retrieve
-from app.safety.guards import advice_disclaimer_needed, output_ok
+from app.safety.guards import (
+    advice_disclaimer_needed,
+    output_ok,
+    sanitize_memory_text,
+    sanitize_memory_turns,
+)
 
 
 async def answer_stream(
@@ -28,18 +33,16 @@ async def answer_stream(
     context = build_context(chunks)
     system = ANSWER_SYSYTEM.format(context=context)
     if session_summary:
+        safe_summary = sanitize_memory_text(session_summary)
         system += (
             "\n\n<session_memory>\n"
-            f"{session_summary}\n"
+            f"{safe_summary}\n"
             "</session_memory>\n"
         )
 
     messages: list[dict] = [{"role": "system", "content": system}]
-    for turn in prior_turns or []:
-        role = turn.get("role")
-        content = turn.get("content")
-        if role in ("user", "assistant") and content:
-            messages.append({"role": role, "content": content})
+    for turn in sanitize_memory_turns(prior_turns):
+        messages.append(turn)
     messages.append({"role": "user", "content": query})
 
     model = route(query, has_math=False, n_docs=len(chunks))
