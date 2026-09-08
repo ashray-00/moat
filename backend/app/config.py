@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -22,9 +23,28 @@ class Settings(BaseSettings):
 
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    # Legacy Pro price id (alias for stripe_price_id_pro when that is empty).
+    stripe_price_id: str = ""
+    stripe_price_id_pro: str = ""
+    stripe_price_id_team: str = ""
 
     # Auth API base, e.g. https://<project-ref>.supabase.co
     # (not DATABASE_URL — that is the Postgres host db.<ref>.supabase.co)
     supabase_url: str = ""
+
+    # When true, /ask and user-scoped routes require a valid Bearer JWT.
+    # Default false so local demos work before passwordless auth is enabled.
+    auth_required: bool = False
+
+    frontend_origin: str = "http://localhost:3000"
+    frontend_url: str = "http://localhost:3000"
+
+    metrics_token: str = ""
+
+    answer_cache_enabled: bool = False
+
+    # Soft per-user ask/agent rate limit (in-process; single instance only).
+    rate_limit_per_minute: int = 30
+
 
 settings = Settings()
