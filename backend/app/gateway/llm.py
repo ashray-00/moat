@@ -3,13 +3,20 @@ from dataclasses import dataclass, field
 import litellm
 from litellm import acompletion
 from app.config import settings
+from app.gateway.usage import cost_usd, merge_usage, usage_from_response
 
 litellm.drop_params = True
 
-PRICES = {
-    settings.model_flagship: {"in": 2.50, "out": 10.00, "cache_read": 1.25},
-    settings.model_cheap: {"in": 0.05, "out": 0.08, "cache_read": 0.0},
-}
+# Re-export for existing imports
+__all__ = [
+    "LLMResult",
+    "complete",
+    "route",
+    "merge_usage",
+    "usage_from_response",
+    "cost_usd",
+]
+
 
 @dataclass
 class LLMResult:
@@ -22,10 +29,6 @@ class LLMResult:
     latency_ms: int
     raw: object = field(repr=False, default=None)
 
-def _cost(model, tin, tout, cached = 0):
-    p = PRICES.get(model, {"in": 0.0, "out": 0.0, "cache_read": 0.0})
-    fresh = max(0, tin - cached)
-    return (fresh * p["in"] + cached * p["cache_read"] + tout * p["out"]) / 1_000_000
 
 def route(query: str, has_math: bool, n_docs: int) -> str:
     """Cheap tier for simple factual lookups; flagship for multi-doc synthesis/math.
@@ -35,7 +38,8 @@ def route(query: str, has_math: bool, n_docs: int) -> str:
               and n_docs <= 3 and not has_math)
     return settings.model_cheap if simple else settings.model_flagship
 
-async def complete(messages: list[dict], model: str | None = None, 
+
+async def complete(messages: list[dict], model: str | None = None,
                   cache_system: bool = True, max_tokens: int = 1024) -> LLMResult:
     model = model or settings.model_flagship
     if cache_system and messages and messages[0]["role"] == "system" and "anthropic" in model:
@@ -54,7 +58,7 @@ async def complete(messages: list[dict], model: str | None = None,
         tokens_in=u.prompt_tokens,
         tokens_out=u.completion_tokens,
         cached_in=cached,
-        cost_usd=_cost(model, u.prompt_tokens, u.completion_tokens, cached),
+        cost_usd=cost_usd(model, u.prompt_tokens, u.completion_tokens, cached),
         latency_ms=latency,
         raw=resp,
     )
