@@ -4,8 +4,23 @@ CREATE TABLE IF NOT EXISTS users (
     user_id TEXT PRIMARY KEY,
     email TEXT,
     plan TEXT NOT NULL DEFAULT 'free',
+    stripe_customer_id TEXT,
+    stripe_subscription_id TEXT,
     created_at TIMESTAMPTZ DEFAULT now(),
     updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Existing DBs created before Stripe columns existed:
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT;
+
+CREATE UNIQUE INDEX IF NOT EXISTS users_stripe_customer_id_uidx
+    ON users (stripe_customer_id)
+    WHERE stripe_customer_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+    event_id TEXT PRIMARY KEY,
+    received_at TIMESTAMPTZ DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS companies (
@@ -73,6 +88,21 @@ CREATE TABLE IF NOT EXISTS watchlist (
     PRIMARY KEY (user_id, ticker)
 );
 
+-- Per-user ticker additions beyond DEFAULT_UNIVERSE (Pro/Team).
+-- Shared corpus stays in companies/chunks; this table is membership + ingest status only.
+CREATE TABLE IF NOT EXISTS user_ticker_adds (
+    user_id TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (user_id, ticker)
+);
+
+CREATE INDEX IF NOT EXISTS user_ticker_adds_user_status_idx
+    ON user_ticker_adds (user_id, status);
+
 CREATE TABLE IF NOT EXISTS session_summaries (
     user_id TEXT,
     thread_id TEXT,
@@ -97,3 +127,21 @@ CREATE TABLE IF NOT EXISTS usage_log (
     latency_ms INT,
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+-- Agent HITL: drafts held for the signed-in user to Approve or Rewrite.
+CREATE TABLE IF NOT EXISTS agent_pending_runs (
+    run_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    query TEXT NOT NULL,
+    draft_answer TEXT NOT NULL,
+    messages_json JSONB NOT NULL,
+    sources_json JSONB NOT NULL DEFAULT '[]'::jsonb,
+    series_json JSONB,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    resolved_at TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS agent_pending_runs_user_idx
+    ON agent_pending_runs (user_id, status, created_at DESC);
