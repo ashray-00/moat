@@ -4,7 +4,17 @@ Ask natural-language questions about public-company filings and get
 **citation-grounded, streamed** answers backed by real SEC data (10-K / 10-Q
 chunks + XBRL facts).
 
-> Live app: [moat-blond.vercel.app](https://moat-blond.vercel.app) · API: [moat-api-8orl.onrender.com](https://moat-api-8orl.onrender.com/health)
+## Live demo
+
+| | URL |
+|--|-----|
+| App | [https://moat-blond.vercel.app](https://moat-blond.vercel.app) |
+| API health | [https://moat-api-8orl.onrender.com/health](https://moat-api-8orl.onrender.com/health) |
+
+Hosted stack: **Vercel** (Next.js) + **Render** (FastAPI Docker) + **Supabase**
+(Postgres/pgvector + Auth). Sign in with magic link. Coverage answers need
+tickers seeded into that Supabase DB (`cd backend && python -m worker.seed`
+with production `DATABASE_URL` — deploy alone does not ingest EDGAR).
 
 ## Why it's interesting (engineering)
 
@@ -20,9 +30,10 @@ fixed.
 - **Offline quality gates in CI:** deterministic checks (advice HITL,
   injection sanitize, citation helpers, usage/cost merge, gold retrieval
   schema). Every PR requires `offline_pass_rate == 1.0` — no LLM spend on push.
-- **Hybrid retrieval + local rerank:** pgvector dense + Postgres FTS sparse →
-  RRF → `BAAI/bge-reranker-v2-m3` cross-encoder. Labeled recall@k gold set gated
-  offline (schema) and on live `workflow_dispatch` (`recall_at_5` floor 0.70).
+- **Hybrid retrieval + rerank:** pgvector dense + Postgres FTS sparse → RRF →
+  Cohere (hosted/Docker default), local CrossEncoder, or none. Labeled
+  recall@k gold set gated offline (schema) and on live `workflow_dispatch`
+  (`recall_at_5` floor 0.70).
 - **Cost-aware gateway:** LiteLLM model routing, `usage_log` token/cost fields
   (Ask stream usage + Agent accumulation), optional semantic answer cache,
   token-gated `GET /metrics/cost`. No fabricated $/req marketing figure in-repo.
@@ -168,14 +179,14 @@ python -m app.evals.run --sample=40
 
 Honest roadmap against the current code (not vapor):
 
-1. **LangGraph checkpointer** (e.g. PostgresSaver) if we want durable agent state /
-   true interrupt HITL instead of post-hoc pending rows only.
-2. **Semantic / structure-aware chunking** beyond token windows + atomic tables.
-3. **Expand coverage** toward a larger equity universe (today: ~10 default mega-caps
+1. **Semantic / structure-aware chunking** beyond token windows + atomic tables.
+2. **Expand coverage** toward a larger equity universe (today: ~10 default mega-caps
    + plan-gated adds).
-4. **LLM-as-judge** only if needed — qualitative today uses free structural gates
+3. **LLM-as-judge** only if needed — qualitative today uses free structural gates
    (section substring + recall@k gold). Judge would burn tokens.
-5. **Team invite + Admin UI** — shipped in Account panel; deepen as needed.
+4. **True LangGraph interrupt HITL** — today Approve/Rewrite uses pending rows +
+   optional PostgresSaver durability; deepen if product needs mid-graph pause.
+5. **Live Stripe checkout** — wiring exists; enable with real price IDs + webhooks.
 
 ## Docs
 
