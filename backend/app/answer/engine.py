@@ -3,6 +3,7 @@ import litellm
 from app.answer.prompts import ANSWER_SYSYTEM, build_context
 from app.gateway.llm import route
 from app.gateway.usage import cost_usd
+from app.obs import span_update, trace_span
 from app.retrieval.rerank import retrieve
 from app.safety.guards import (
     advice_disclaimer_needed,
@@ -41,9 +42,42 @@ async def answer_stream(
     ticker: str | None = None,
     session_summary: str | None = None,
     prior_turns: list[dict] | None = None,
+    user_id: str | None = None,
 ):
     """Async generator yielding answer tokens. Retrieval first, then streamed generation."""
-    chunks = await retrieve(query, ticker, top_k=5)
+    if user_id and ticker:
+        from app.universe.store import effective_universe
+
+        allowed = {t.upper() for t in await effective_universe(user_id)}
+        if ticker.strip().upper() not in allowed:
+            yield {
+                "type": "answer",
+                "delta": (
+                    f"{ticker.upper()} is not in your coverage. "
+                    "Add it under Coverage (Pro/Team) or pick a covered ticker."
+                ),
+            }
+            yield {"type": "done"}
+            return
+
+    with trace_span(
+        "retrieve",
+        as_type="retriever",
+        input={"query": query, "ticker": ticker},
+    ) as ret_span:
+        chunks = await retrieve(query, ticker, top_k=5)
+        if user_id and chunks:
+            from app.universe.store import effective_universe
+
+            allowed = {t.upper() for t in await effective_universe(user_id)}
+            chunks = [
+                c for c in chunks if (c.get("ticker") or "").upper() in allowed
+            ]
+        span_update(
+            ret_span,
+            output={"n_chunks": len(chunks), "tickers": sorted({c.get("ticker") for c in chunks if c.get("ticker")})},
+        )
+
     if not chunks:
         yield {
             "type": "answer",
@@ -84,25 +118,46 @@ async def answer_stream(
     answer = ""
     usage_piece: dict | None = None
     kwargs = {"model": model, "messages": messages, "max_tokens": 1024, "stream": True}
-    try:
-        stream = await litellm.acompletion(
-            **kwargs, stream_options={"include_usage": True}
-        )
-    except TypeError:
-        # Older/provider path without stream_options support.
-        stream = await litellm.acompletion(**kwargs)
 
-    async for part in stream:
-        maybe = _usage_from_stream_chunk(part, model)
-        if maybe:
-            usage_piece = maybe
+    with trace_span(
+        "completion",
+        as_type="generation",
+        input={"query": query, "n_docs": len(chunks)},
+        metadata={"model": model},
+    ) as gen_span:
         try:
-            delta = part.choices[0].delta.content
-        except Exception:
-            delta = None
-        if delta:
-            answer += delta
-            yield {"type": "answer", "delta": delta}
+            stream = await litellm.acompletion(
+                **kwargs, stream_options={"include_usage": True}
+            )
+        except TypeError:
+            stream = await litellm.acompletion(**kwargs)
+
+        async for part in stream:
+            maybe = _usage_from_stream_chunk(part, model)
+            if maybe:
+                usage_piece = maybe
+            try:
+                delta = part.choices[0].delta.content
+            except Exception:
+                delta = None
+            if delta:
+                answer += delta
+                yield {"type": "answer", "delta": delta}
+
+        if usage_piece:
+            span_update(
+                gen_span,
+                model=model,
+                output={"answer_len": len(answer)},
+                usage_details={
+                    "input": usage_piece["tokens_in"],
+                    "output": usage_piece["tokens_out"],
+                    "cache_read_input_tokens": usage_piece["cached_in"],
+                },
+                cost_details={"total": usage_piece["cost_usd"]},
+            )
+        else:
+            span_update(gen_span, model=model, output={"answer_len": len(answer)})
 
     if usage_piece:
         yield {
