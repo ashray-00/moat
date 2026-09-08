@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from "react";
 import {
+  type AdminIngestJob,
   type BillingMe,
+  type OrgMe,
+  acceptOrgInvite,
+  adminReingest,
+  fetchAdminJobs,
+  fetchAdminMe,
   fetchBillingMe,
+  fetchOrgMe,
+  inviteOrgMember,
   openBillingPortal,
   startCheckout,
 } from "../lib/ask";
@@ -23,16 +31,35 @@ export function AccountPanel({
   onClose,
 }: AccountPanelProps) {
   const [me, setMe] = useState<BillingMe | null>(null);
+  const [org, setOrg] = useState<OrgMe | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminJobs, setAdminJobs] = useState<AdminIngestJob[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteId, setInviteId] = useState("");
+  const [lastInviteId, setLastInviteId] = useState<string | null>(null);
+  const [reingestTicker, setReingestTicker] = useState("");
+
+  async function reload() {
+    const [billing, orgMe, admin] = await Promise.all([
+      fetchBillingMe(accessToken),
+      fetchOrgMe(accessToken).catch(() => null),
+      fetchAdminMe(accessToken),
+    ]);
+    setMe(billing);
+    if (orgMe) setOrg(orgMe);
+    setIsAdmin(admin.admin);
+    if (admin.admin) {
+      const jobs = await fetchAdminJobs(accessToken).catch(() => ({ jobs: [] }));
+      setAdminJobs(jobs.jobs ?? []);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    fetchBillingMe(accessToken)
-      .then((data) => {
-        if (!cancelled) setMe(data);
-      })
+    reload()
       .catch((e) => {
         if (!cancelled) {
           setLoadError(e instanceof Error ? e.message : "Could not load usage");
@@ -41,6 +68,7 @@ export function AccountPanel({
     return () => {
       cancelled = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken]);
 
   const usedPct =
@@ -73,6 +101,54 @@ export function AccountPanel({
       setBusyPlan(null);
     }
   }
+
+  async function onInvite() {
+    setActionError(null);
+    setBusyPlan("invite");
+    try {
+      const inv = await inviteOrgMember(accessToken, inviteEmail.trim());
+      setLastInviteId(inv.invite_id);
+      setInviteEmail("");
+      await reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Invite failed.");
+    } finally {
+      setBusyPlan(null);
+    }
+  }
+
+  async function onAccept() {
+    setActionError(null);
+    setBusyPlan("accept");
+    try {
+      await acceptOrgInvite(accessToken, inviteId.trim());
+      setInviteId("");
+      await reload();
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Accept failed.");
+    } finally {
+      setBusyPlan(null);
+    }
+  }
+
+  async function onReingest() {
+    setActionError(null);
+    setBusyPlan("reingest");
+    try {
+      await adminReingest(accessToken, reingestTicker.trim());
+      setReingestTicker("");
+      const jobs = await fetchAdminJobs(accessToken);
+      setAdminJobs(jobs.jobs ?? []);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : "Reingest failed.");
+    } finally {
+      setBusyPlan(null);
+    }
+  }
+
+  const canInvite = Boolean(
+    org?.org && org.plan === "team" && org.org.role === "owner",
+  );
 
   return (
     <div
@@ -153,6 +229,104 @@ export function AccountPanel({
                 {busyPlan === "portal" ? "Opening…" : "Manage billing"}
               </button>
             )}
+          </section>
+        )}
+
+        <section className="mt-8 space-y-3">
+          <h3 className="footnote-label">Team</h3>
+          {org?.org ? (
+            <div className="space-y-2 text-sm text-ink">
+              <p>
+                {org.org.name} · {org.member_count}/{org.seat_limit} seats
+                {org.pending_invites
+                  ? ` · ${org.pending_invites} pending`
+                  : ""}
+              </p>
+              <ul className="space-y-1 text-xs text-mist">
+                {org.members.map((m) => (
+                  <li key={m.user_id} className="font-mono">
+                    {m.user_id.slice(0, 8)}… · {m.role}
+                  </li>
+                ))}
+              </ul>
+              {canInvite && (
+                <div className="flex gap-2 pt-1">
+                  <input
+                    type="email"
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    placeholder="teammate@company.com"
+                    className="min-w-0 flex-1 rounded-chip border border-line bg-canvas px-2 py-1.5 text-xs text-ink"
+                  />
+                  <button
+                    type="button"
+                    disabled={busyPlan !== null || !inviteEmail.trim()}
+                    onClick={() => void onInvite()}
+                    className="rounded-chip border border-line px-3 py-1.5 text-xs text-mist hover:border-accent hover:text-ink disabled:opacity-45"
+                  >
+                    {busyPlan === "invite" ? "…" : "Invite"}
+                  </button>
+                </div>
+              )}
+              {lastInviteId && (
+                <p className="break-all font-mono text-[11px] text-stone">
+                  Invite id (share privately): {lastInviteId}
+                </p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-mist">
+              No team yet. Upgrade to Team, then invite seats here.
+            </p>
+          )}
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={inviteId}
+              onChange={(e) => setInviteId(e.target.value)}
+              placeholder="Paste invite id to join"
+              className="min-w-0 flex-1 rounded-chip border border-line bg-canvas px-2 py-1.5 text-xs text-ink"
+            />
+            <button
+              type="button"
+              disabled={busyPlan !== null || !inviteId.trim()}
+              onClick={() => void onAccept()}
+              className="rounded-chip border border-line px-3 py-1.5 text-xs text-mist hover:border-accent hover:text-ink disabled:opacity-45"
+            >
+              {busyPlan === "accept" ? "…" : "Accept"}
+            </button>
+          </div>
+        </section>
+
+        {isAdmin && (
+          <section className="mt-8 space-y-3">
+            <h3 className="footnote-label">Admin</h3>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={reingestTicker}
+                onChange={(e) => setReingestTicker(e.target.value.toUpperCase())}
+                placeholder="TICKER"
+                className="min-w-0 flex-1 rounded-chip border border-line bg-canvas px-2 py-1.5 font-mono text-xs text-ink"
+              />
+              <button
+                type="button"
+                disabled={busyPlan !== null || !reingestTicker.trim()}
+                onClick={() => void onReingest()}
+                className="rounded-chip border border-line px-3 py-1.5 text-xs text-mist hover:border-accent hover:text-ink disabled:opacity-45"
+              >
+                {busyPlan === "reingest" ? "…" : "Reingest"}
+              </button>
+            </div>
+            <ul className="max-h-32 space-y-1 overflow-y-auto text-xs text-mist">
+              {adminJobs.slice(0, 12).map((j) => (
+                <li key={j.id} className="font-mono">
+                  {j.ticker} · {j.status}
+                  {j.error ? ` · ${j.error.slice(0, 40)}` : ""}
+                </li>
+              ))}
+              {adminJobs.length === 0 && <li>No recent ingest jobs.</li>}
+            </ul>
           </section>
         )}
 

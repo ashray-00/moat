@@ -349,12 +349,132 @@ export async function openBillingPortal(
   return res.json();
 }
 
-export async function billingStatus(): Promise<{
+export async function billingStatus(token: string): Promise<{
   configured: boolean;
   pro_price_configured?: boolean;
   team_price_configured?: boolean;
 }> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/billing/status`);
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/billing/status`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
   if (!res.ok) return { configured: false };
+  return res.json();
+}
+
+export type OrgMember = {
+  user_id: string;
+  role: string;
+  created_at?: string;
+};
+
+export type OrgMe = {
+  org: {
+    org_id: string;
+    name: string;
+    owner_user_id: string;
+    role: string;
+  } | null;
+  plan: string;
+  seat_limit: number;
+  members: OrgMember[];
+  member_count: number;
+  pending_invites: number;
+};
+
+export async function fetchOrgMe(token: string): Promise<OrgMe> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/org/me`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail || `Org failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function inviteOrgMember(
+  token: string,
+  email: string,
+): Promise<{ invite_id: string; email: string }> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/org/invite`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail || `Invite failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function acceptOrgInvite(
+  token: string,
+  inviteId: string,
+): Promise<{ org: OrgMe["org"] }> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/org/accept`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ invite_id: inviteId }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail || `Accept failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export type AdminMe = { admin: boolean };
+
+export type AdminIngestJob = {
+  id: number;
+  ticker: string;
+  status: string;
+  error?: string | null;
+};
+
+export async function fetchAdminMe(token: string): Promise<AdminMe> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/me`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) return { admin: false };
+  return res.json();
+}
+
+export async function fetchAdminJobs(
+  token: string,
+): Promise<{ jobs: AdminIngestJob[] }> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/ingest-jobs`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail || `Admin jobs failed (${res.status})`);
+  }
+  return res.json();
+}
+
+export async function adminReingest(
+  token: string,
+  ticker: string,
+): Promise<{ ticker: string; job_id: number | null; created: boolean }> {
+  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/admin/reingest`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ ticker }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body?.detail || `Reingest failed (${res.status})`);
+  }
   return res.json();
 }
