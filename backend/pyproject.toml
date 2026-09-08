@@ -22,7 +22,6 @@ dependencies = [
     "langgraph>=0.2.60",
     "langchain-core>=0.3",
     "langfuse>=3.0",
-    "sentence-transformers>=3.3",
     "sse-starlette>=2.1",
     "tenacity>=9.0",
     "stripe>=11.0",
@@ -33,10 +32,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Local CrossEncoder rerank (heavy). Omit on slim hosts; use RERANK_PROVIDER=cohere|none.
+local-rerank = [
+    "sentence-transformers>=3.3",
+]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "httpx>=0.27",
+    "sentence-transformers>=3.3",
 ]
 
 [tool.pytest.ini_options]

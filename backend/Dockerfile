@@ -1,10 +1,32 @@
+# Slim API image for Render/Railway/etc.
+# Prefer RERANK_PROVIDER=cohere|none — local CrossEncoder is optional (see [local-rerank]).
 FROM python:3.12-slim
+
 WORKDIR /app
-RUN pip install --no-cache-dir uv
-COPY . .
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PORT=8000 \
+    RERANK_PROVIDER=cohere
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip install --no-cache-dir uv
+
+# Install deps before copying full tree so code edits don't bust the layer.
+COPY pyproject.toml README.md* ./
+COPY app ./app
+COPY worker ./worker
+
 RUN uv pip install --system -e .
-RUN python -c "from sentence_transformers import CrossEncoder; CrossEncoder('BAAI/bge-reranker-v2-m3')"
+
+COPY . .
+
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')" || exit 1
-CMD ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# Render/Railway set PORT; default 8000 for local docker.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT:-8000}/health" || exit 1
+
+CMD ["sh", "-c", "uvicorn app.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

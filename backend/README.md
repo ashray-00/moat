@@ -63,9 +63,9 @@ Without the webhook forwarder, Checkout can succeed while `users.plan` stays fre
 
 | `RERANK_PROVIDER` | Needs | Notes |
 |-------------------|-------|-------|
-| `local` (default) | RAM for CrossEncoder | `BAAI/bge-reranker-v2-m3` |
-| `cohere` | `COHERE_API_KEY` | Hosted; good for slim deploys |
+| `cohere` (Docker default) | `COHERE_API_KEY` | Best for slim hosts (Render free) |
 | `none` | — | Hybrid retrieval only |
+| `local` | `pip install -e "backend[local-rerank]"` | Downloads CrossEncoder; heavy RAM |
 
 ## Agent checkpoint
 

@@ -16,8 +16,14 @@ _model = None
 def load():
     global _model
     if _model is None:
-        from sentence_transformers import CrossEncoder
-
+        try:
+            from sentence_transformers import CrossEncoder
+        except ImportError as exc:
+            raise RuntimeError(
+                "Local rerank requires sentence-transformers. "
+                "Install with: pip install -e 'backend[local-rerank]' "
+                "or set RERANK_PROVIDER=cohere|none."
+            ) from exc
         _model = CrossEncoder("BAAI/bge-reranker-v2-m3", max_length=512)
     return _model
 
