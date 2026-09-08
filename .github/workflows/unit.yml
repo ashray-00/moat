@@ -11,11 +11,16 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install uv && uv pip install --system -e "backend[dev]"
-      - name: run unit tests
+      - name: run unit tests (includes offline eval gates)
         working-directory: backend
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
         run: pytest -q
+      - name: offline eval CLI gate
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
+        run: python -m app.evals.run --offline-only
   frontend-build:
     runs-on: ubuntu-latest
     defaults:

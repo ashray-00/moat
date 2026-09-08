@@ -1,14 +1,39 @@
 name: eval-gate
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "backend/app/**"
+      - "backend/tests/**"
+      - ".github/workflows/eval.yaml"
 jobs:
-  eval:
+  offline:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install uv && uv pip install --system -e "backend[dev]"
+      - name: offline eval gate (no DB / no LLM keys)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
+        run: python -m app.evals.run --offline-only
+  live:
+    # Manual or when secrets exist — full Ask + retrieval pipeline.
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    needs: offline
     services:
       postgres:
         image: pgvector/pgvector:pg16
         env: { POSTGRES_PASSWORD: postgres, POSTGRES_DB: moat }
         ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -19,17 +44,11 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -h 127.0.0.1 -U postgres -d moat -f backend/app/ingest/schema.sql
-      - name: run eval (manual)
+      - name: live eval gate (fails below floors)
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: |
-          python - <<'PY'
-          import asyncio
-          from app.evals.run import run_evals
-          r = asyncio.run(run_evals(sample=40))
-          print(r)
-          PY
+        run: python -m app.evals.run --sample=40
         working-directory: backend
