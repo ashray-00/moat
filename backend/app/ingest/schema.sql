@@ -1,5 +1,13 @@
 CREATE EXTENSION IF NOT EXISTS vector;
 
+CREATE TABLE IF NOT EXISTS users (
+    user_id TEXT PRIMARY KEY,
+    email TEXT,
+    plan TEXT NOT NULL DEFAULT 'free',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS companies (
     cik TEXT PRIMARY KEY,
     ticker TEXT UNIQUE,
@@ -29,14 +37,14 @@ CREATE TABLE IF NOT EXISTS chunks (
 );
 
 -- Dense index
-CREATE INDEX chunks_embedding_idx ON chunks
+CREATE INDEX IF NOT EXISTS chunks_embedding_idx ON chunks
     USING hnsw (embedding vector_cosine_ops);
 
 -- Sparse index
-CREATE INDEX chunks_fts_idx ON chunks USING gin (fts);
+CREATE INDEX IF NOT EXISTS chunks_fts_idx ON chunks USING gin (fts);
 
 -- Metadata filter index
-CREATE INDEX chunks_ticker_idx ON chunks (ticker);
+CREATE INDEX IF NOT EXISTS chunks_ticker_idx ON chunks (ticker);
 
 CREATE TABLE IF NOT EXISTS facts (
     cik TEXT,
@@ -56,7 +64,7 @@ CREATE TABLE IF NOT EXISTS answer_cache (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 
-CREATE INDEX answer_cache_emb_idx ON answer_cache USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS answer_cache_emb_idx ON answer_cache USING hnsw (embedding vector_cosine_ops);
 
 CREATE TABLE IF NOT EXISTS watchlist (
     user_id TEXT,
@@ -69,9 +77,14 @@ CREATE TABLE IF NOT EXISTS session_summaries (
     user_id TEXT,
     thread_id TEXT,
     summary TEXT,
+    recent JSONB NOT NULL DEFAULT '[]'::jsonb,
     updated_at TIMESTAMPTZ DEFAULT now(),
     PRIMARY KEY (user_id, thread_id)
 );
+
+-- Existing DBs created before `recent` existed:
+ALTER TABLE session_summaries
+    ADD COLUMN IF NOT EXISTS recent JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS usage_log (
     id BIGSERIAL PRIMARY KEY,
@@ -83,4 +96,4 @@ CREATE TABLE IF NOT EXISTS usage_log (
     cost_usd DOUBLE PRECISION,
     latency_ms INT,
     created_at TIMESTAMPTZ DEFAULT now()
-)
+);
