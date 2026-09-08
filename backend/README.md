@@ -51,6 +51,9 @@ Without the webhook forwarder, Checkout can succeed while `users.plan` stays fre
 
 - Optional `REDIS_URL` for shared RPM across workers; otherwise in-process.
   When `REDIS_URL` is set but Redis is down, API returns **503** (fail closed).
+- Free: Agent off by default (`FREE_AGENT_ENABLED`). Daily USD caps
+  (`DAILY_COST_USD_*`), Agent round/cost caps, disposable-email + signup-rate
+  gates — see root `.env.example` and [docs/security.md](../docs/security.md).
 
 ## Observability
 

@@ -63,5 +63,22 @@ class Settings(BaseSettings):
     rerank_provider: str = "local"
     cohere_rerank_model: str = "rerank-english-v3.0"
 
+    # ─── Cost / abuse (no Redis; usage_log + users table) ────────────
+    # Kill switches — flip without code changes.
+    llm_enabled: bool = True
+    agent_enabled: bool = True
+    # Free plan: Agent off by default (Ask still works within monthly quota).
+    free_agent_enabled: bool = False
+    # Daily USD caps from usage_log.cost_usd (0 = disabled).
+    daily_cost_usd_per_user: float = 1.0
+    daily_cost_usd_global: float = 25.0
+    # Agent loop bounds (LangGraph recursion ≈ 2 * rounds + 1).
+    agent_max_tool_rounds: int = 6
+    agent_max_cost_usd_per_run: float = 0.5
+    # Signup soft-gates.
+    block_disposable_email: bool = True
+    blocked_email_domains: str = ""
+    max_signups_per_hour: int = 30
+
 
 settings = Settings()

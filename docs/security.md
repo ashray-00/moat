@@ -27,6 +27,11 @@ ops/security contract — not a red-team novel.
 ## Abuse / cost controls
 
 - **Atomic quota reserve** before LLM work (`usage_log` pending row).
+- Free plan: **5 asks/month**, **Agent off** by default (`FREE_AGENT_ENABLED`).
+- Daily USD caps from `usage_log.cost_usd` (`DAILY_COST_USD_PER_USER` /
+  `DAILY_COST_USD_GLOBAL`); Agent per-run cost + tool-round caps.
+- Kill switches: `LLM_ENABLED`, `AGENT_ENABLED`.
+- New accounts: disposable-email blocklist + `MAX_SIGNUPS_PER_HOUR` (Postgres).
 - Per-plan **RPM**; if `REDIS_URL` is set, Redis is required (fail **503** if
   unreachable — no silent memory fallback across replicas).
 - Without Redis, limits are **per process** only — use Redis for multi-instance.
@@ -71,6 +76,5 @@ ops/security contract — not a red-team novel.
 
 - Live Stripe webhook URL setup (hosting-specific).
 - Hosted reranker swap (local cross-encoder remains the default).
-- Public demo URL.
 
 See also: [eval-report.md](eval-report.md), [postmortem.md](postmortem.md).

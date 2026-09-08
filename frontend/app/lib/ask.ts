@@ -286,6 +286,7 @@ export type BillingPlanCard = {
   checkout: boolean;
   checkout_ready: boolean;
   current: boolean;
+  agent_enabled?: boolean;
 };
 
 export type BillingMe = {
@@ -299,6 +300,7 @@ export type BillingMe = {
   universe_adds_used?: number;
   universe_add_limit?: number;
   ingest_per_hour?: number;
+  agent_enabled?: boolean;
   stripe_checkout_available: boolean;
   has_stripe_customer?: boolean;
   has_active_subscription?: boolean;

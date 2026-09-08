@@ -83,9 +83,14 @@ async def get_checkpointer():
 
 def thread_config(user_id: str, thread_id: str) -> dict:
     """LangGraph config keyed by authenticated user + client thread id."""
+    from app.config import settings
+
     safe_thread = (thread_id or "research").strip()[:128] or "research"
+    # Each tool round is agent→tools→agent; +2 headroom for final answer.
+    rounds = max(1, int(settings.agent_max_tool_rounds or 6))
     return {
         "configurable": {
             "thread_id": f"{user_id}:{safe_thread}",
-        }
+        },
+        "recursion_limit": rounds * 2 + 2,
     }

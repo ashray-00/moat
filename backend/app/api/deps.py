@@ -38,6 +38,29 @@ def _decode_bearer(authorization: str) -> dict:
 
 
 async def get_or_create_user(user_id: str, email: str | None = None) -> str:
+    from app.api.signup_guards import assert_email_allowed, assert_signup_rate_ok
+
+    async with engine.begin() as conn:
+        existing = (
+            await conn.execute(
+                text("SELECT user_id FROM users WHERE user_id=:u"),
+                {"u": user_id},
+            )
+        ).first()
+        if existing:
+            if email:
+                await conn.execute(
+                    text(
+                        "UPDATE users SET email=COALESCE(:e, email), "
+                        "updated_at=now() WHERE user_id=:u"
+                    ),
+                    {"u": user_id, "e": email},
+                )
+            return user_id
+
+    # New account only — soft abuse gates (not applied on every request).
+    assert_email_allowed(email)
+    await assert_signup_rate_ok()
     async with engine.begin() as conn:
         await conn.execute(
             text(

@@ -59,7 +59,13 @@ async def test_reserve_quota_under_limit(monkeypatch):
         def begin(self):
             return FakeConn()
 
+    async def no_budget(_user_id):
+        return None
+
     monkeypatch.setattr(limits, "engine", FakeEngine())
+    monkeypatch.setattr(
+        "app.api.cost_guards.assert_daily_budgets", no_budget
+    )
     usage_id = await limits.reserve_quota("u1", "free")
     assert usage_id == 42
     assert calls["n"] == 1
@@ -85,7 +91,13 @@ async def test_reserve_quota_over_limit(monkeypatch):
         def begin(self):
             return FakeConn()
 
+    async def no_budget(_user_id):
+        return None
+
     monkeypatch.setattr(limits, "engine", FakeEngine())
+    monkeypatch.setattr(
+        "app.api.cost_guards.assert_daily_budgets", no_budget
+    )
     with pytest.raises(HTTPException) as ei:
         await limits.reserve_quota("u1", "free")
     assert ei.value.status_code == 402

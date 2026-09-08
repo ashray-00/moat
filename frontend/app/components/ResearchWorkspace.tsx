@@ -16,6 +16,7 @@ import {
   addUniverseTicker,
   agentStream,
   askStream,
+  fetchBillingMe,
   fetchUniverse,
   removeUniverseTicker,
   resumeAgentStream,
@@ -60,6 +61,7 @@ export function ResearchWorkspace({
   const [toolTrail, setToolTrail] = useState<string[]>([]);
   const [series, setSeries] = useState<MetricSeries | null>(null);
   const [pendingRunId, setPendingRunId] = useState<string | null>(null);
+  const [agentEnabled, setAgentEnabled] = useState(false);
 
   const threadId = "research";
 
@@ -74,6 +76,26 @@ export function ResearchWorkspace({
       }
     }
     void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchBillingMe(accessToken)
+      .then((me) => {
+        if (!cancelled) {
+          // Prefer API flag; if older API omits it, Free stays off / paid on.
+          const on =
+            typeof me.agent_enabled === "boolean"
+              ? me.agent_enabled
+              : me.plan !== "free";
+          setAgentEnabled(on);
+          if (!on) setMode("ask");
+        }
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -166,6 +188,10 @@ export function ResearchWorkspace({
     setBusy(true);
     try {
       if (mode === "agent") {
+        if (!agentEnabled) {
+          setError("Agent is not included on Free. Upgrade to Pro or use Ask.");
+          return;
+        }
         await consumeAgentEvents(agentStream(token, question, threadId));
         return;
       }
@@ -327,15 +353,24 @@ export function ResearchWorkspace({
           </button>
           <button
             type="button"
-            onClick={() => setMode("agent")}
+            onClick={() => agentEnabled && setMode("agent")}
+            disabled={!agentEnabled}
+            title={
+              agentEnabled
+                ? undefined
+                : "Agent is not included on Free — upgrade to Pro"
+            }
             className={`rounded-chip border px-2.5 py-1 ${
               mode === "agent"
                 ? "border-accent text-ink"
                 : "border-line text-mist"
-            }`}
+            } disabled:cursor-not-allowed disabled:opacity-45`}
           >
             Agent
           </button>
+          {!agentEnabled && (
+            <span className="text-stone">Agent · Pro+</span>
+          )}
         </section>
 
         <section aria-label="Coverage" className="space-y-3">

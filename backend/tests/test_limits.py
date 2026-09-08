@@ -25,6 +25,7 @@ def test_list_public_plans():
     assert pro["checkout"] is True
     free = next(p for p in limits.list_public_plans() if p["id"] == "free")
     assert free["checkout"] is False
+    assert "agent_enabled" in free
 
 
 @pytest.mark.asyncio
@@ -68,6 +69,7 @@ async def test_usage_snapshot(monkeypatch):
     assert snap["universe_add_limit"] == 0
     assert snap["universe_adds_used"] == 0
     assert snap["period_start"].startswith("2026-09-01")
+    assert "agent_enabled" in snap
 
 
 def test_universe_add_limits():

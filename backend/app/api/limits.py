@@ -72,6 +72,8 @@ def seat_limit(plan: str | None) -> int:
 
 
 def list_public_plans() -> list[dict[str, Any]]:
+    from app.api.cost_guards import agent_allowed_for_plan
+
     return [
         {
             "id": plan_id,
@@ -82,6 +84,7 @@ def list_public_plans() -> list[dict[str, Any]]:
             "ingest_per_hour": cfg["ingest_per_hour"],
             "seat_limit": cfg.get("seat_limit", 1),
             "checkout": cfg["checkout"],
+            "agent_enabled": agent_allowed_for_plan(plan_id),
         }
         for plan_id, cfg in PLANS.items()
     ]
@@ -126,6 +129,11 @@ async def reserve_quota(user_id: str, plan: str) -> int:
 
     Returns ``usage_log.id``. Call ``finalize_usage`` after the request.
     """
+    from app.api.cost_guards import assert_daily_budgets, assert_llm_enabled
+
+    assert_llm_enabled()
+    await assert_daily_budgets(user_id)
+
     key = normalize_plan(plan)
     limit = monthly_ask_limit(key)
     async with engine.begin() as conn:
@@ -183,6 +191,7 @@ async def finalize_usage(
 
 
 async def usage_snapshot(user_id: str, plan: str | None) -> dict[str, Any]:
+    from app.api.cost_guards import agent_allowed_for_plan
     from app.universe.store import count_user_adds
 
     key = normalize_plan(plan)
@@ -203,6 +212,7 @@ async def usage_snapshot(user_id: str, plan: str | None) -> dict[str, Any]:
         "universe_adds_used": adds_used,
         "universe_add_limit": add_limit,
         "ingest_per_hour": int(cfg["ingest_per_hour"]),
+        "agent_enabled": agent_allowed_for_plan(key),
     }
 
 

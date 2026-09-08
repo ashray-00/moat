@@ -129,6 +129,18 @@ def build_agent(user_id: str, checkpointer=None):
     }
 
     async def agent_node(state: MessagesState) -> dict:
+        max_cost = float(settings.agent_max_cost_usd_per_run or 0)
+        if max_cost > 0 and float(usage_acc.get("cost_usd") or 0) >= max_cost:
+            return {
+                "messages": [
+                    AIMessage(
+                        content=(
+                            "Stopping here — this agent run hit its cost budget. "
+                            "Ask a narrower question or use Ask mode."
+                        )
+                    )
+                ]
+            }
         msgs = _messages_for_litellm(state["messages"])
         if not any(m.get("role") == "system" for m in msgs):
             msgs = [{"role": "system", "content": AGENT_SYSTEM}, *msgs]
@@ -144,7 +156,17 @@ def build_agent(user_id: str, checkpointer=None):
         piece = usage_from_response(resp, model)
         merge_usage(usage_acc, piece)
         usage_acc["latency_ms"] = int(usage_acc.get("latency_ms") or 0) + latency
-        return {"messages": [_to_ai_message(resp.choices[0].message)]}
+        # After this call, if over budget, strip tool_calls so the graph ends.
+        ai = _to_ai_message(resp.choices[0].message)
+        if max_cost > 0 and float(usage_acc.get("cost_usd") or 0) >= max_cost:
+            if getattr(ai, "tool_calls", None):
+                note = (
+                    (ai.content or "").strip()
+                    + ("\n\n" if ai.content else "")
+                    + "(Run cost budget reached — returning without further tools.)"
+                )
+                return {"messages": [AIMessage(content=note.strip())]}
+        return {"messages": [ai]}
 
     g = StateGraph(MessagesState)
     g.add_node("agent", agent_node)

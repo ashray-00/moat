@@ -38,3 +38,4 @@ def test_checkpoint_dsn_strips_asyncpg(monkeypatch):
 def test_thread_config_scopes_user():
     cfg = thread_config("user-1", "desk")
     assert cfg["configurable"]["thread_id"] == "user-1:desk"
+    assert cfg["recursion_limit"] >= 4

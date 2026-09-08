@@ -13,6 +13,7 @@ from app.agent.checkpoint import get_checkpointer, thread_config
 from app.agent.pending import create_pending_run, get_pending_run, resolve_pending
 from app.api.deps import RequiredUser, get_user_plan
 from app.api.limits import finalize_usage, plan_rpm, reserve_quota
+from app.api.cost_guards import assert_agent_allowed
 from app.api.ratelimit import check_rate_limit
 from app.memory.store import load_memory, remember_turn
 from app.obs import flush_langfuse, span_set_io, span_update, trace_span
@@ -272,6 +273,7 @@ async def _agent_events(
     plan = await get_user_plan(user_id)
     usage_id: int | None = None
     try:
+        assert_agent_allowed(plan)
         check_rate_limit(f"agent:{user_id}", limit=plan_rpm(plan))
         if charge_quota:
             usage_id = await reserve_quota(user_id, plan)

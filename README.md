@@ -46,7 +46,8 @@ fixed.
   [docs/security.md](docs/security.md).
 - **Product surface:** Supabase magic-link auth, Stripe free/pro/team,
   plan-gated Coverage (custom ticker ingest into a **shared** corpus),
-  Team seats (5), env-gated `/admin`, optional Redis RPM.
+  Team seats (5), env-gated `/admin`, optional Redis RPM. Free plan has
+  Ask only by default (Agent is Pro+).
 
 ## Architecture
 
@@ -169,11 +170,14 @@ python -m app.evals.run --sample=40
 
 ## Plans (product)
 
-| Plan | Asks / month | RPM | Custom tickers | Seats |
-|------|-------------:|----:|---------------:|------:|
-| Free | 5 | 10 | 0 | 1 |
-| Pro | 500 | 60 | 10 | 1 |
-| Team | 5000 | 120 | 50 | 5 |
+| Plan | Asks / month | RPM | Custom tickers | Seats | Agent |
+|------|-------------:|----:|---------------:|------:|:-----:|
+| Free | 5 | 10 | 0 | 1 | no* |
+| Pro | 500 | 60 | 10 | 1 | yes |
+| Team | 5000 | 120 | 50 | 5 | yes |
+
+\* Free Agent is off by default (`FREE_AGENT_ENABLED=false`). Daily USD budgets and
+Agent run caps also apply — see [docs/security.md](docs/security.md).
 
 ## What I'd do next
 
