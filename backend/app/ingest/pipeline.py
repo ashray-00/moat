@@ -53,6 +53,11 @@ async def ingest_company(ticker: str, forms=("10-K", "10-Q")):
             ch = chunk_filing(html)
             vectors = await embed_texts([c["text"] for c in ch])
             async with engine.begin() as conn:
+                # Idempotent re-ingest: replace chunks for this filing.
+                await conn.execute(
+                    text("DELETE FROM chunks WHERE filing_id=:fid"),
+                    {"fid": filing_id},
+                )
                 for c, v in zip(ch, vectors):
                     await conn.execute(text(
                         "INSERT INTO chunks (filing_id, cik, ticker, section, is_table, text, tokens, embedding) "
