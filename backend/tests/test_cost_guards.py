@@ -7,7 +7,16 @@ from app.api import cost_guards, signup_guards
 from app.config import settings
 
 
-def test_agent_blocked_on_free_by_default(monkeypatch):
+def test_agent_allowed_on_free_by_default(monkeypatch):
+    monkeypatch.setattr(settings, "llm_enabled", True)
+    monkeypatch.setattr(settings, "agent_enabled", True)
+    monkeypatch.setattr(settings, "free_agent_enabled", True)
+    assert cost_guards.agent_allowed_for_plan("free") is True
+    assert cost_guards.agent_allowed_for_plan("pro") is True
+    cost_guards.assert_agent_allowed("free")
+
+
+def test_agent_can_be_locked_to_paid(monkeypatch):
     monkeypatch.setattr(settings, "llm_enabled", True)
     monkeypatch.setattr(settings, "agent_enabled", True)
     monkeypatch.setattr(settings, "free_agent_enabled", False)

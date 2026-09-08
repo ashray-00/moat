@@ -46,8 +46,8 @@ fixed.
   [docs/security.md](docs/security.md).
 - **Product surface:** Supabase magic-link auth, Stripe free/pro/team,
   plan-gated Coverage (custom ticker ingest into a **shared** corpus),
-  Team seats (5), env-gated `/admin`, optional Redis RPM. Free plan has
-  Ask only by default (Agent is Pro+).
+  Team seats (5), env-gated `/admin`, optional Redis RPM. Free Ask+Agent share
+  a small monthly quota (toggle with `FREE_AGENT_ENABLED`).
 
 ## Architecture
 
@@ -172,12 +172,12 @@ python -m app.evals.run --sample=40
 
 | Plan | Asks / month | RPM | Custom tickers | Seats | Agent |
 |------|-------------:|----:|---------------:|------:|:-----:|
-| Free | 5 | 10 | 0 | 1 | no* |
+| Free | 5 | 10 | 0 | 1 | yes* |
 | Pro | 500 | 60 | 10 | 1 | yes |
 | Team | 5000 | 120 | 50 | 5 | yes |
 
-\* Free Agent is off by default (`FREE_AGENT_ENABLED=false`). Daily USD budgets and
-Agent run caps also apply — see [docs/security.md](docs/security.md).
+\* Free Ask+Agent share the **5 runs/month** quota (plus daily USD / Agent run
+caps). Set `FREE_AGENT_ENABLED=false` to make Agent Pro-only.
 
 ## What I'd do next
 

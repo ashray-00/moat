@@ -67,8 +67,9 @@ class Settings(BaseSettings):
     # Kill switches — flip without code changes.
     llm_enabled: bool = True
     agent_enabled: bool = True
-    # Free plan: Agent off by default (Ask still works within monthly quota).
-    free_agent_enabled: bool = False
+    # Free plan: Agent on by default (shares monthly ask quota — demo-friendly).
+    # Set FREE_AGENT_ENABLED=false to lock Agent to Pro/Team only.
+    free_agent_enabled: bool = True
     # Daily USD caps from usage_log.cost_usd (0 = disabled).
     daily_cost_usd_per_user: float = 1.0
     daily_cost_usd_global: float = 25.0

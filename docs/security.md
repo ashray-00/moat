@@ -27,7 +27,8 @@ ops/security contract — not a red-team novel.
 ## Abuse / cost controls
 
 - **Atomic quota reserve** before LLM work (`usage_log` pending row).
-- Free plan: **5 asks/month**, **Agent off** by default (`FREE_AGENT_ENABLED`).
+- Free plan: **5 Ask/Agent runs/month** (shared); Agent on by default
+  (`FREE_AGENT_ENABLED`).
 - Daily USD caps from `usage_log.cost_usd` (`DAILY_COST_USD_PER_USER` /
   `DAILY_COST_USD_GLOBAL`); Agent per-run cost + tool-round caps.
 - Kill switches: `LLM_ENABLED`, `AGENT_ENABLED`.

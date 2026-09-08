@@ -86,11 +86,9 @@ export function ResearchWorkspace({
     fetchBillingMe(accessToken)
       .then((me) => {
         if (!cancelled) {
-          // Prefer API flag; if older API omits it, Free stays off / paid on.
+          // Prefer API flag. If an older API omits it, keep Agent usable for demo.
           const on =
-            typeof me.agent_enabled === "boolean"
-              ? me.agent_enabled
-              : me.plan !== "free";
+            typeof me.agent_enabled === "boolean" ? me.agent_enabled : true;
           setAgentEnabled(on);
           if (!on) setMode("ask");
         }
@@ -189,7 +187,7 @@ export function ResearchWorkspace({
     try {
       if (mode === "agent") {
         if (!agentEnabled) {
-          setError("Agent is not included on Free. Upgrade to Pro or use Ask.");
+          setError("Agent is unavailable on your plan. Try Ask, or upgrade.");
           return;
         }
         await consumeAgentEvents(agentStream(token, question, threadId));
@@ -358,7 +356,7 @@ export function ResearchWorkspace({
             title={
               agentEnabled
                 ? undefined
-                : "Agent is not included on Free — upgrade to Pro"
+                : "Agent is unavailable on your plan right now"
             }
             className={`rounded-chip border px-2.5 py-1 ${
               mode === "agent"
@@ -369,7 +367,7 @@ export function ResearchWorkspace({
             Agent
           </button>
           {!agentEnabled && (
-            <span className="text-stone">Agent · Pro+</span>
+            <span className="text-stone">Agent unavailable</span>
           )}
         </section>
 
