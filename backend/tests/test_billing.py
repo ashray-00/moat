@@ -153,10 +153,24 @@ async def test_apply_plan_writes_pro(monkeypatch):
         def begin(self):
             return Conn()
 
+    async def fake_ensure_team_org(owner_user_id: str, name: str | None = None):
+        executed["org"] = owner_user_id
+        return {
+            "org_id": "org-1",
+            "name": name or "Team",
+            "owner_user_id": owner_user_id,
+            "role": "owner",
+        }
+
     monkeypatch.setattr(billing, "engine", Engine())
+    # team plan calls ensure_team_org (imported at call time from app.orgs.store)
+    monkeypatch.setattr(
+        "app.orgs.store.ensure_team_org", fake_ensure_team_org
+    )
     await billing._apply_plan("user-9", "team")
     assert executed["params"]["u"] == "user-9"
     assert executed["params"]["p"] == "team"
+    assert executed["org"] == "user-9"
 
 
 @pytest.mark.asyncio
