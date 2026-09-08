@@ -60,15 +60,6 @@ export async function* askStream(
   }
 }
 
-export async function fetchWatchlist(token: string): Promise<string[]> {
-  const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/watchlist`, {
-    headers: { authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return [];
-  const data = await res.json();
-  return data.tickers ?? [];
-}
-
 export type UniverseAdd = {
   ticker: string;
   status: "pending" | "running" | "ready" | "failed" | string;
@@ -291,6 +282,7 @@ export type BillingPlanCard = {
   rpm: number;
   universe_add_limit?: number;
   ingest_per_hour?: number;
+  seat_limit?: number;
   checkout: boolean;
   checkout_ready: boolean;
   current: boolean;
