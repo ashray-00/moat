@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
@@ -5,6 +7,8 @@ from sqlalchemy import text
 from app.api import admin, agent, ask, billing, memory, metrics, org, universe, watchlist
 from app.config import settings
 from app.db import engine
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Moat API")
 
@@ -34,5 +38,7 @@ async def health():
             await conn.execute(text("SELECT 1"))
         db_ok = True
     except Exception:
+        # Surface the class name in Render logs (no secrets).
+        logger.exception("health db check failed")
         db_ok = False
     return {"ok": db_ok, "db": db_ok}
