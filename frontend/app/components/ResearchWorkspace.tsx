@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import type { User } from "@supabase/supabase-js";
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { AccountPanel } from "./AccountPanel";
 import {
   AskHttpError,
@@ -508,10 +516,56 @@ export function ResearchWorkspace({
         )}
 
         {series && series.series?.length > 0 && (
-          <section aria-label="Metric series" className="animate-fade-up space-y-2">
+          <section aria-label="Metric series" className="animate-fade-up space-y-3">
             <h2 className="footnote-label">
               {series.ticker} · {series.metric} ({series.unit || "USD"})
             </h2>
+            <div className="h-40 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={series.series.map((row) => ({
+                    fy: row.fiscal_year,
+                    value: row.value,
+                  }))}
+                  margin={{ top: 4, right: 8, left: 0, bottom: 0 }}
+                >
+                  <XAxis
+                    dataKey="fy"
+                    tick={{ fontSize: 11 }}
+                    stroke="currentColor"
+                    className="text-mist"
+                  />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    stroke="currentColor"
+                    className="text-mist"
+                    width={56}
+                    tickFormatter={(v: number) =>
+                      v >= 1e9
+                        ? `${(v / 1e9).toFixed(1)}B`
+                        : v >= 1e6
+                          ? `${(v / 1e6).toFixed(1)}M`
+                          : String(v)
+                    }
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      fontSize: 12,
+                      borderRadius: 8,
+                      border: "1px solid var(--moat-line, #ccc)",
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="value"
+                    stroke="var(--moat-accent, #2563eb)"
+                    strokeWidth={2}
+                    dot={{ r: 3 }}
+                    isAnimationActive={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
             <table className="w-full text-left text-sm text-ink">
               <thead>
                 <tr className="border-b border-line text-xs text-mist">

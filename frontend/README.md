@@ -14,4 +14,4 @@ npm install
 npm run dev
 ```
 
-Signed-out users only see Sign in / Create account. Ask, Agent, and watchlist require a session.
+Signed-out users only see Sign in / Create account. Ask, Agent, and Coverage require a session.
