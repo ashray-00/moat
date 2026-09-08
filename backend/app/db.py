@@ -34,15 +34,33 @@ def _needs_ssl(url: str) -> bool:
     return True
 
 
+def _uses_pgbouncer(url: str) -> bool:
+    """Supabase pooler / PgBouncer needs asyncpg statement cache disabled."""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    port = parsed.port
+    if port == 6543:
+        return True
+    return "pooler.supabase.com" in host
+
+
+def engine_connect_args(url: str) -> dict:
+    args: dict = {}
+    if _needs_ssl(url):
+        args["ssl"] = True
+    if _uses_pgbouncer(url):
+        args["statement_cache_size"] = 0
+    return args
+
+
 _url = async_database_url(settings.database_url)
-_connect_args: dict = {"ssl": True} if _needs_ssl(_url) else {}
 
 engine = create_async_engine(
     _url,
-    pool_size=10,
-    max_overflow=20,
+    pool_size=5,
+    max_overflow=10,
     pool_pre_ping=True,
-    connect_args=_connect_args,
+    connect_args=engine_connect_args(_url),
 )
 
 SessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)

@@ -1,6 +1,6 @@
 """Unit tests for DATABASE_URL asyncpg normalization and SSL heuristics."""
 
-from app.db import _needs_ssl, async_database_url
+from app.db import _needs_ssl, _uses_pgbouncer, async_database_url, engine_connect_args
 
 
 def test_async_database_url_adds_asyncpg():
@@ -22,3 +22,12 @@ def test_needs_ssl_remote_and_local():
     assert _needs_ssl("postgresql+asyncpg://u:p@db.xxx.supabase.co:5432/postgres")
     assert not _needs_ssl("postgresql+asyncpg://u:p@127.0.0.1:5433/moat")
     assert not _needs_ssl("postgresql+asyncpg://u:p@localhost/moat")
+
+
+def test_pooler_disables_statement_cache():
+    pooler = "postgresql+asyncpg://u:p@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+    assert _uses_pgbouncer(pooler)
+    assert engine_connect_args(pooler)["statement_cache_size"] == 0
+    assert engine_connect_args(pooler)["ssl"] is True
+    tx = "postgresql+asyncpg://u:p@host.example:6543/postgres"
+    assert _uses_pgbouncer(tx)
