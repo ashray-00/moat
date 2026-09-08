@@ -26,8 +26,8 @@ ADVICE_PATTERNS = [r"should i (buy|sell)", r"is .* a good (buy|investment)",
                    r"will .* (go up|crash|moon)"]
 
 def output_ok(answer: str) -> tuple[bool, str]:
-    """Structural check: an answer with zero citations is ungrounded -> block."""
-    if "[cite:]" not in answer:
+    """Structural check: an answer with zero citations is ungrounded -> flag."""
+    if "[cite:" not in answer:
         return False, "Answer was not grounded in sources."
     return True, ""
 
