@@ -20,8 +20,11 @@ research and add one sentence: "This is reasearch, not investment advice."
 """
 
 def build_context(chunks: list[dict]) -> str:
+    from app.safety.guards import sanitize_retrieved
+
     out = []
     for c in chunks:
         cid = f"c{c['id']}"
-        out.append(f"[{cid}] ({c['ticker']} - {c['section']})\n{c['text']}")
+        text = sanitize_retrieved(c["text"])
+        out.append(f"[{cid}] ({c['ticker']} - {c['section']})\n{text}")
     return "\n\n---\n\n".join(out)
