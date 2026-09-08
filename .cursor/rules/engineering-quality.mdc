@@ -1,0 +1,63 @@
+---
+description: Engineering Quality & Independent Review Principle — production-bar changes for Moat
+alwaysApply: true
+---
+
+# Engineering Quality & Independent Review Principle
+
+Treat every code change as if it were being developed by a professional software engineering team, not as a one-shot code generation task.
+
+## 1. Understand Before Changing
+
+Before modifying code:
+
+- Understand the existing architecture, conventions, abstractions, and dependencies.
+- Inspect the relevant code paths rather than making assumptions.
+- Identify how the proposed change fits into the existing design.
+- Look for existing utilities, patterns, interfaces, tests, and abstractions that should be reused.
+- Determine the expected behavior, edge cases, failure modes, and backwards-compatibility requirements.
+- Do not modify unrelated code unless it is genuinely required.
+
+Prefer a small, well-understood change over a broad rewrite.
+
+## 2. Design Before Implementation
+
+Before writing substantial code, establish a clear implementation approach.
+
+Consider: separation of concerns; single responsibility; abstraction boundaries; encapsulation; dependency management; error handling; resource ownership; concurrency; performance; security; testability; maintainability; backwards compatibility; project conventions.
+
+Do not introduce abstractions merely for the sake of abstraction. Use the simplest design that is robust and maintainable.
+
+## 3. Implement Like a Senior Engineer
+
+Write production-quality code: clear, idiomatic, small, cohesive, defensive at boundaries, properly error-handled, easy to test and maintain.
+
+Avoid: unnecessary complexity, duplication, magic values, dead code, premature abstractions, over-engineering, hidden side effects, unjustified global state, suppressing errors, silencing warnings without justification, comments that only restate what code does.
+
+Comments should explain **why**, not simply **what**.
+
+## 4. Test the Change
+
+Before done: add/update tests (happy path, edges, failures, backwards compat); run the suite; run lint/build/type checks. Insufficient tests for changed behavior must be improved. A change is not complete merely because a new test passes.
+
+## 5–7. Independent Review & Findings
+
+After implementation, STOP acting as author. Review as an independent senior engineer. Assume at least one important mistake exists.
+
+Classify findings: **BLOCKER** (must fix), **IMPORTANT** (normally fix before accept), **MINOR** (optional). Do not manufacture findings. If none, state that the review passed.
+
+## 8–10. Author → Reviewer Loop
+
+**Implement → Verify → Independent Review → Fix → Re-review** until no unresolved BLOCKER or IMPORTANT findings.
+
+Never review and fix in the same mental pass. After fixes, re-run tests/build and review the final diff again.
+
+## 11. Scope Discipline
+
+Do not turn every task into a refactor. Report unrelated problems separately. Only make the minimum structural improvement when existing code makes the change unsafe or impossible.
+
+## 12. Definition of Done
+
+Requirements satisfied; fits architecture; production quality; tests exist and pass; build/lint OK; edges/security/performance considered; independent review done; BLOCKER/IMPORTANT resolved and re-reviewed; no known critical issue remains.
+
+**Core:** Optimize for correctness, simplicity, maintainability, and long-term quality — not merely finishing quickly.
