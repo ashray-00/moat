@@ -52,11 +52,29 @@ async def test_usage_snapshot(monkeypatch):
     async def fake_usage(_user_id):
         return 2, "2026-09-01T00:00:00+00:00"
 
+    async def fake_adds(_user_id):
+        return 0
+
     monkeypatch.setattr(limits, "_month_usage", fake_usage)
+    monkeypatch.setattr(
+        "app.universe.store.count_user_adds", fake_adds
+    )
     snap = await limits.usage_snapshot("user-1", "free")
     assert snap["used"] == 2
     assert snap["limit"] == 5
     assert snap["remaining"] == 3
     assert snap["plan"] == "free"
     assert snap["rpm"] == 10
+    assert snap["universe_add_limit"] == 0
+    assert snap["universe_adds_used"] == 0
     assert snap["period_start"].startswith("2026-09-01")
+
+
+def test_universe_add_limits():
+    assert limits.universe_add_limit("free") == 0
+    assert limits.universe_add_limit("pro") == 10
+    assert limits.universe_add_limit("team") == 50
+    assert limits.ingest_per_hour("pro") == 2
+    assert limits.ingest_per_hour("team") == 6
+    pro = next(p for p in limits.list_public_plans() if p["id"] == "pro")
+    assert pro["universe_add_limit"] == 10

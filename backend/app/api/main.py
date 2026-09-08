@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
-from app.api import agent, ask, billing, memory, metrics, watchlist
+from app.api import agent, ask, billing, memory, metrics, universe, watchlist
 from app.config import settings
 from app.db import engine
 
@@ -17,6 +17,7 @@ app.add_middleware(
 
 app.include_router(ask.router)
 app.include_router(watchlist.router)
+app.include_router(universe.router)
 app.include_router(memory.router)
 app.include_router(agent.router)
 app.include_router(billing.router)

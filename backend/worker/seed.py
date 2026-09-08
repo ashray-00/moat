@@ -1,12 +1,13 @@
 import asyncio
 from app.ingest.pipeline import ingest_company
+from app.ingest.universe import DEFAULT_UNIVERSE
 
-UNIVERSE = ["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA","AMD","INTC","JPM"]
 
 async def main():
-    for t in UNIVERSE:
+    for t in DEFAULT_UNIVERSE:
         print("Ingesting", t)
         await ingest_company(t)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

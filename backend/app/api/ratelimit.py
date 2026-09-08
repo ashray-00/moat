@@ -12,8 +12,13 @@ from app.config import settings
 _hits: dict[str, deque[float]] = defaultdict(deque)
 
 
-def check_rate_limit(key: str, *, limit: int | None = None) -> None:
-    """Enforce a sliding 60s window.
+def check_rate_limit(
+    key: str,
+    *,
+    limit: int | None = None,
+    window_seconds: float = 60.0,
+) -> None:
+    """Enforce a sliding window.
 
     If ``limit`` is omitted, falls back to ``settings.rate_limit_per_minute``
     (used for anonymous traffic). ``limit <= 0`` disables the check.
@@ -22,7 +27,7 @@ def check_rate_limit(key: str, *, limit: int | None = None) -> None:
     if cap <= 0:
         return
     now = time.monotonic()
-    window = 60.0
+    window = float(window_seconds)
     q = _hits[key]
     while q and now - q[0] > window:
         q.popleft()

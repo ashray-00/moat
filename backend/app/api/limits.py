@@ -12,18 +12,24 @@ PLANS: dict[str, dict[str, Any]] = {
         "label": "Free",
         "monthly_asks": 5,
         "rpm": 10,
+        "universe_add_limit": 0,
+        "ingest_per_hour": 0,
         "checkout": False,
     },
     "pro": {
         "label": "Pro",
         "monthly_asks": 500,
         "rpm": 60,
+        "universe_add_limit": 10,
+        "ingest_per_hour": 2,
         "checkout": True,
     },
     "team": {
         "label": "Team",
         "monthly_asks": 5000,
         "rpm": 120,
+        "universe_add_limit": 50,
+        "ingest_per_hour": 6,
         "checkout": True,
     },
 }
@@ -50,6 +56,14 @@ def monthly_ask_limit(plan: str | None) -> int:
     return int(plan_config(plan)["monthly_asks"])
 
 
+def universe_add_limit(plan: str | None) -> int:
+    return int(plan_config(plan)["universe_add_limit"])
+
+
+def ingest_per_hour(plan: str | None) -> int:
+    return int(plan_config(plan)["ingest_per_hour"])
+
+
 def list_public_plans() -> list[dict[str, Any]]:
     return [
         {
@@ -57,6 +71,8 @@ def list_public_plans() -> list[dict[str, Any]]:
             "label": cfg["label"],
             "monthly_asks": cfg["monthly_asks"],
             "rpm": cfg["rpm"],
+            "universe_add_limit": cfg["universe_add_limit"],
+            "ingest_per_hour": cfg["ingest_per_hour"],
             "checkout": cfg["checkout"],
         }
         for plan_id, cfg in PLANS.items()
@@ -97,11 +113,15 @@ async def enforce_quota(user_id: str, plan: str) -> None:
 
 
 async def usage_snapshot(user_id: str, plan: str | None) -> dict[str, Any]:
+    from app.universe.store import count_user_adds
+
     key = normalize_plan(plan)
     cfg = plan_config(key)
     limit = int(cfg["monthly_asks"])
     used, period_start = await _month_usage(user_id)
     remaining = max(0, limit - used)
+    add_limit = int(cfg["universe_add_limit"])
+    adds_used = await count_user_adds(user_id)
     return {
         "plan": key,
         "label": cfg["label"],
@@ -110,6 +130,9 @@ async def usage_snapshot(user_id: str, plan: str | None) -> dict[str, Any]:
         "remaining": remaining,
         "rpm": int(cfg["rpm"]),
         "period_start": period_start,
+        "universe_adds_used": adds_used,
+        "universe_add_limit": add_limit,
+        "ingest_per_hour": int(cfg["ingest_per_hour"]),
     }
 
 
