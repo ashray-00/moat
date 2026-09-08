@@ -26,7 +26,11 @@ export const metadata: Metadata = {
   description: "Equity research over SEC filings",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html
       lang="en"
