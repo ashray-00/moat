@@ -17,19 +17,22 @@ fixed.
   Manual live gate floors: factual ≥ **0.70**, qualitative = **1.0**
   (sample of 40 factual + 2 qualitative). We do **not** publish a vanity
   accuracy number until a dated live run is checked in.
-- **Offline quality gates in CI:** **24** deterministic checks (advice HITL,
-  injection sanitize, citation helpers, usage/cost merge). Every PR requires
-  `offline_pass_rate == 1.0` — no LLM spend on push.
+- **Offline quality gates in CI:** deterministic checks (advice HITL,
+  injection sanitize, citation helpers, usage/cost merge, gold retrieval
+  schema). Every PR requires `offline_pass_rate == 1.0` — no LLM spend on push.
 - **Hybrid retrieval + local rerank:** pgvector dense + Postgres FTS sparse →
-  RRF → `BAAI/bge-reranker-v2-m3` cross-encoder. A `recall_at_k` helper exists
-  but is **not** yet CI-wired with a published recall score.
+  RRF → `BAAI/bge-reranker-v2-m3` cross-encoder. Labeled recall@k gold set gated
+  offline (schema) and on live `workflow_dispatch` (`recall_at_5` floor 0.70).
 - **Cost-aware gateway:** LiteLLM model routing, `usage_log` token/cost fields
   (Ask stream usage + Agent accumulation), optional semantic answer cache,
   token-gated `GET /metrics/cost`. No fabricated $/req marketing figure in-repo.
-- **Observability:** Langfuse traces when keys are set (soft-fail if absent).
+- **Observability:** Langfuse v4 traces when both keys are set (Ask chain +
+  retrieve/generation; Agent span). Soft no-op if unset.
 - **Safety + HITL:** sanitize retrieved filing text and session memory;
   reject injection-like queries; soft ungrounded warning; agent
-  Approve/Rewrite when drafts look like buy/sell advice.
+  Approve/Rewrite when drafts look like buy/sell advice. Agent graph state
+  can persist via PostgresSaver (`AGENT_CHECKPOINT`). Deploy checklist:
+  [docs/security.md](docs/security.md).
 - **Product surface:** Supabase magic-link auth, Stripe free/pro/team,
   plan-gated Coverage (custom ticker ingest into a **shared** corpus),
   Team seats (5), env-gated `/admin`, optional Redis RPM.
@@ -130,6 +133,8 @@ uvicorn app.api.main:app --reload --app-dir backend --port 8000
 # optional durable ingest worker (Coverage adds)
 python -m worker.ingest
 
+# or: docker compose up --build   (api + worker + postgres + redis)
+
 cd frontend && npm ci && npm run dev
 # http://localhost:3000
 ```
@@ -163,17 +168,14 @@ python -m app.evals.run --sample=40
 
 Honest roadmap against the current code (not vapor):
 
-1. **Wire `recall_at_k` into CI** with a labeled gold set — helper exists, score does not.
-2. **LangGraph checkpointer** (e.g. PostgresSaver) if we want durable agent state /
+1. **LangGraph checkpointer** (e.g. PostgresSaver) if we want durable agent state /
    true interrupt HITL instead of post-hoc pending rows only.
-3. **Semantic / structure-aware chunking** beyond token windows + atomic tables.
-4. **Expand coverage** toward a larger equity universe (today: ~10 default mega-caps
+2. **Semantic / structure-aware chunking** beyond token windows + atomic tables.
+3. **Expand coverage** toward a larger equity universe (today: ~10 default mega-caps
    + plan-gated adds).
-5. **LLM-as-judge / online evals** for qualitative answers — today live scoring is
-   numeric + citation + section substring only.
-6. **Seed + ingest inside the live eval workflow** so `workflow_dispatch` is
-   reproducible without a hand-seeded DB.
-7. **Team invite + Admin UI** in Account (APIs exist; UI is thin).
+4. **LLM-as-judge** only if needed — qualitative today uses free structural gates
+   (section substring + recall@k gold). Judge would burn tokens.
+5. **Team invite + Admin UI** — shipped in Account panel; deepen as needed.
 
 ## Docs
 
@@ -181,6 +183,7 @@ Honest roadmap against the current code (not vapor):
 |-----|---------|
 | [docs/eval-report.md](docs/eval-report.md) | Eval sets, metrics, CI floors, offline scores |
 | [docs/postmortem.md](docs/postmortem.md) | One real bug → fix → lesson |
+| [docs/security.md](docs/security.md) | Authz model + deploy security checklist |
 | [docs/adr/0001-stack.md](docs/adr/0001-stack.md) | Stack decisions |
 
 ## License / contact

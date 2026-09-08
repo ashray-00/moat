@@ -50,6 +50,28 @@ Without the webhook forwarder, Checkout can succeed while `users.plan` stays fre
 ## Rate limits
 
 - Optional `REDIS_URL` for shared RPM across workers; otherwise in-process.
+  When `REDIS_URL` is set but Redis is down, API returns **503** (fail closed).
+
+## Observability
+
+- Set `LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` to enable tracing.
+- Ask opens a `chain` span with nested `retriever` + `generation`.
+- Agent opens an `agent` span; flush on completion.
+- Without keys, tracing is a no-op (API still works).
+
+## Rerank
+
+| `RERANK_PROVIDER` | Needs | Notes |
+|-------------------|-------|-------|
+| `local` (default) | RAM for CrossEncoder | `BAAI/bge-reranker-v2-m3` |
+| `cohere` | `COHERE_API_KEY` | Hosted; good for slim deploys |
+| `none` | — | Hybrid retrieval only |
+
+## Agent checkpoint
+
+- `AGENT_CHECKPOINT=true` (default) uses LangGraph **AsyncPostgresSaver** on
+  the same `DATABASE_URL` (creates checkpoint tables on first use).
+- Approve/Rewrite HITL still uses `agent_pending_runs`.
 
 ## Safety
 
