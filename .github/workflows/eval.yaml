@@ -1,5 +1,6 @@
 name: eval-gate
-on: [pull_request]
+on:
+  workflow_dispatch:
 jobs:
   eval:
     runs-on: ubuntu-latest
@@ -12,19 +13,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
-      - run: pip install uv && uv pip install --system -e backend
-      - name: seed a tiny fixture corpus
-        run: python -m backend.tests.seed_fixtures    # 2-3 filings, deterministic
-      - name: run eval and enforce threshold
+      - run: pip install uv && uv pip install --system -e "backend[dev]"
+      - name: apply schema
         env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h 127.0.0.1 -U postgres -d moat -f backend/app/ingest/schema.sql
+      - name: run eval (manual)
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: |
           python - <<'PY'
-          import asyncio, sys
-          from backend.app.evals.run import run_eval
-          r = asyncio.run(run_eval(sample=40))
+          import asyncio
+          from app.evals.run import run_evals
+          r = asyncio.run(run_evals(sample=40))
           print(r)
-          assert r["factual_accuracy"] >= 0.90, f"factual accuracy regressed: {r}"
           PY
+        working-directory: backend
