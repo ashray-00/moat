@@ -5,6 +5,7 @@ The engine is lazy: it does not open a connection until first use.
 
 from __future__ import annotations
 
+import ssl
 from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -44,10 +45,22 @@ def _uses_pgbouncer(url: str) -> bool:
     return "pooler.supabase.com" in host
 
 
+def remote_ssl_context() -> ssl.SSLContext:
+    """TLS encrypt without CA hostname checks.
+
+    Matches libpq ``sslmode=require``. Supabase pooler often presents a chain
+    that fails default verification (self-signed intermediate).
+    """
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    return ctx
+
+
 def engine_connect_args(url: str) -> dict:
     args: dict = {}
     if _needs_ssl(url):
-        args["ssl"] = True
+        args["ssl"] = remote_ssl_context()
     if _uses_pgbouncer(url):
         args["statement_cache_size"] = 0
     return args

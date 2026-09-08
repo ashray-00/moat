@@ -51,6 +51,9 @@ async def get_checkpointer():
     dsn = checkpoint_dsn()
     if not dsn:
         return None
+    # Hosted Supabase (esp. pooler) needs TLS; match libpq sslmode=require.
+    if "sslmode=" not in dsn and "localhost" not in dsn and "127.0.0.1" not in dsn:
+        dsn = dsn + ("&" if "?" in dsn else "?") + "sslmode=require"
     try:
         _pool = AsyncConnectionPool(
             conninfo=dsn,
