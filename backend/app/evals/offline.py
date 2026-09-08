@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 from app.gateway.usage import merge_usage, usage_from_response
+from app.evals.gold import load_gold_retrieval
 from app.evals.scorer import citation_grounded, numerical_match
 from app.safety.guards import (
     advice_disclaimer_needed,
@@ -179,6 +180,31 @@ def _usage_gates() -> list[GateResult]:
     ]
 
 
+def _gold_retrieval_gates() -> list[GateResult]:
+    """Structural validation of the recall@k gold set (no DB / no LLM)."""
+    try:
+        cases = load_gold_retrieval()
+    except Exception as exc:
+        return [GateResult(name="gold_retrieval_load", ok=False, detail=str(exc))]
+    tickers = {c["ticker"] for c in cases}
+    return [
+        GateResult(
+            name="gold_retrieval_min_size",
+            ok=len(cases) >= 8,
+            detail=f"n={len(cases)}",
+        ),
+        GateResult(
+            name="gold_retrieval_has_aapl_nvda",
+            ok={"AAPL", "NVDA"}.issubset(tickers),
+            detail=str(sorted(tickers)),
+        ),
+        GateResult(
+            name="gold_retrieval_must_contain_nonempty",
+            ok=all(len(c["must_contain"]) >= 4 for c in cases),
+        ),
+    ]
+
+
 def collect_gate_results() -> list[GateResult]:
     return [
         *_advice_gates(),
@@ -186,6 +212,7 @@ def collect_gate_results() -> list[GateResult]:
         *_citation_gates(),
         *_numerical_gates(),
         *_usage_gates(),
+        *_gold_retrieval_gates(),
     ]
 
 

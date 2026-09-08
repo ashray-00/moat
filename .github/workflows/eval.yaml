@@ -20,7 +20,7 @@ jobs:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
         run: python -m app.evals.run --offline-only
   live:
-    # Manual or when secrets exist — full Ask + retrieval pipeline.
+    # Manual — full Ask + retrieval pipeline against a seeded DB.
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     needs: offline
@@ -44,11 +44,21 @@ jobs:
           PGPASSWORD: postgres
         run: |
           psql -h 127.0.0.1 -U postgres -d moat -f backend/app/ingest/schema.sql
+      - name: seed eval tickers (EDGAR + embeddings)
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: python -m worker.seed --tickers=AAPL,NVDA,MSFT
       - name: live eval gate (fails below floors)
         env:
           DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/moat
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
         run: python -m app.evals.run --sample=40
         working-directory: backend

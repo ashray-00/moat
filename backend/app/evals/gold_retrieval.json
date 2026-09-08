@@ -1,0 +1,62 @@
+[
+  {
+    "id": "aapl-risk-supply",
+    "query": "What supply-chain risks does Apple disclose?",
+    "ticker": "AAPL",
+    "must_contain": "Risk Factors"
+  },
+  {
+    "id": "aapl-business",
+    "query": "How does Apple describe its business segments?",
+    "ticker": "AAPL",
+    "must_contain": "Business"
+  },
+  {
+    "id": "nvda-datacenter",
+    "query": "How does NVIDIA describe its data-center segment?",
+    "ticker": "NVDA",
+    "must_contain": "Business"
+  },
+  {
+    "id": "nvda-competition",
+    "query": "What does NVIDIA say about competition?",
+    "ticker": "NVDA",
+    "must_contain": "Risk Factors"
+  },
+  {
+    "id": "msft-cloud",
+    "query": "How does Microsoft describe cloud and Azure?",
+    "ticker": "MSFT",
+    "must_contain": "Business"
+  },
+  {
+    "id": "msft-risk",
+    "query": "What cybersecurity risks does Microsoft disclose?",
+    "ticker": "MSFT",
+    "must_contain": "Risk Factors"
+  },
+  {
+    "id": "googl-ads",
+    "query": "How does Alphabet describe advertising revenue?",
+    "ticker": "GOOGL",
+    "must_contain": "Business"
+  },
+  {
+    "id": "amzn-aws",
+    "query": "How does Amazon describe AWS?",
+    "ticker": "AMZN",
+    "must_contain": "Business"
+  },
+  {
+    "id": "meta-family",
+    "query": "How does Meta describe Family of Apps?",
+    "ticker": "META",
+    "must_contain": "Business"
+  },
+  {
+    "id": "jpm-credit",
+    "query": "What credit risk factors does JPMorgan disclose?",
+    "ticker": "JPM",
+    "must_contain": "Risk Factors"
+  }
+]

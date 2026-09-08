@@ -2,15 +2,18 @@ import asyncio
 import sys
 
 from app.evals.dataset import QUALITATIVE_CASES, generate_factual_cases
+from app.evals.gold import load_gold_retrieval
 from app.evals.offline import run_offline_evals
 from app.evals.scorer import citation_grounded, numerical_match
 from app.answer.engine import answer_stream
+from app.retrieval.eval_retrieval import recall_at_k
 from app.retrieval.rerank import retrieve
 
 # Live pipeline floors — offline gates must be perfect (1.0).
 FACTUAL_MIN = 0.70
 QUALITATIVE_MIN = 1.0
 OFFLINE_MIN = 1.0
+RECALL_AT_5_MIN = 0.70
 
 
 async def _collect_answers(query, ticker):
@@ -47,6 +50,19 @@ async def run_evals(sample: int | None = None, *, live: bool = True) -> dict:
         got = await retrieve(c["query"], c["ticker"], top_k=5)
         if any(c["must_retrieve_section"].lower() in g["section"].lower() for g in got):
             qual_pass += 1
+
+    gold = load_gold_retrieval()
+    # Map gold must_contain → section-style substring already used by qualitative cases.
+    recall_cases = [
+        {
+            "query": c["query"],
+            "ticker": c["ticker"],
+            "must_contain": c["must_contain"],
+        }
+        for c in gold
+    ]
+    recall = await recall_at_k(recall_cases, k=5)
+
     report.update(
         {
             "factual_accuracy": round(fact_pass / max(len(factual), 1), 3),
@@ -55,6 +71,8 @@ async def run_evals(sample: int | None = None, *, live: bool = True) -> dict:
                 qual_pass / max(len(QUALITATIVE_CASES), 1), 3
             ),
             "qualitative_n": len(QUALITATIVE_CASES),
+            "recall_at_5": round(recall, 3),
+            "recall_n": len(recall_cases),
         }
     )
     return report
@@ -70,6 +88,8 @@ def evals_passed(report: dict) -> bool:
         "qualitative_accuracy" in report
         and report["qualitative_accuracy"] < QUALITATIVE_MIN
     ):
+        return False
+    if "recall_at_5" in report and report["recall_at_5"] < RECALL_AT_5_MIN:
         return False
     return True
 

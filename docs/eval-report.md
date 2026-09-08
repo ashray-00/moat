@@ -8,9 +8,10 @@ commit SHA here so the report stays honest.
 
 | Set | Source | Size | What “pass” means |
 |-----|--------|------|-------------------|
-| **Offline gates** | Fixed strings in `app/evals/offline.py` | **24** cases | Every gate `ok`; `offline_pass_rate == 1.0` |
+| **Offline gates** | Fixed strings in `app/evals/offline.py` + gold schema | **27+** cases | Every gate `ok`; `offline_pass_rate == 1.0` |
 | **Factual (live)** | Auto from `facts` ⨝ `companies` where tag `LIKE '%Revenue%'` | **N = DB rows**; CLI/CI samples **40** | `numerical_match` **and** `citation_grounded` |
 | **Qualitative (live)** | Hand-written in `app/evals/dataset.py` | **2** | Top-5 retrieve includes required `section` substring |
+| **Recall@5 (live)** | `app/evals/gold_retrieval.json` | **10** | Gold `must_contain` in top-5 text or section; floor **0.70** |
 
 Qualitative cases today:
 
@@ -53,6 +54,7 @@ Qualitative cases today:
 | `offline_pass_rate` | **1.0** |
 | `factual_accuracy` (live) | **0.70** |
 | `qualitative_accuracy` (live) | **1.0** |
+| `recall_at_5` (live) | **0.70** |
 
 Live evals are intentional opt-in so PRs do not burn provider spend.
 
@@ -64,19 +66,8 @@ Captured locally while writing this doc:
 cd backend && python -m app.evals.run --offline-only
 ```
 
-```text
-EVAL GATE PASSED
-{
-  "offline_pass_rate": 1.0,
-  "offline_n": 24,
-  "offline_passed": 24,
-  "offline_failed": []
-}
-```
-
-Replace this block after each meaningful eval change. For a “CI screenshot,”
-attach the GitHub Actions log for the **offline eval CLI gate** step on a green
-`unit-tests` run — the stdout matches the JSON above when the gate passes.
+Expect `offline_pass_rate: 1.0` with gold-retrieval schema gates included
+(`offline_n` ≥ 27). Replace this block after each meaningful eval change.
 
 **Live factual/qualitative scores:** not checked into the repo. Run:
 
