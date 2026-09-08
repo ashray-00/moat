@@ -33,9 +33,23 @@ Without the webhook forwarder, Checkout can succeed while `users.plan` stays fre
 
 ## Coverage (tickers)
 
-- Free users see the fixed default universe (seed list).
+- Free users see the fixed default universe (seed list; override with `MOAT_DEFAULT_UNIVERSE`).
 - Pro/Team can add custom tickers (async SEC ingest into the **shared** DB — skipped if already ingested) and remove only their adds.
-- Apply schema for `user_ticker_adds`: `psql "$DATABASE_URL" -f backend/app/ingest/schema.sql`
+- Apply schema (includes `ingest_jobs`, orgs): `psql "$DATABASE_URL" -f backend/app/ingest/schema.sql`
+- Run ingest worker alongside API when adds need durable processing: `python -m worker.ingest`
+
+## Team seats
+
+- Team plan creates an org on subscription; owner invites via `POST /org/invite` (seat_limit 5).
+- Accept with `POST /org/accept`.
+
+## Admin
+
+- Set `ADMIN_USER_IDS` to comma-separated user ids. Endpoints under `/admin`.
+
+## Rate limits
+
+- Optional `REDIS_URL` for shared RPM across workers; otherwise in-process.
 
 ## Safety
 
