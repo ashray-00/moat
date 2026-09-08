@@ -112,6 +112,10 @@ async def set_subscription(
             ),
             {"u": user_id, "p": plan, "c": customer_id, "s": subscription_id},
         )
+    if plan == "team":
+        from app.orgs.store import ensure_team_org
+
+        await ensure_team_org(user_id)
 
 
 async def clear_subscription(user_id: str) -> None:

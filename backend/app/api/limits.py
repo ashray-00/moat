@@ -14,6 +14,7 @@ PLANS: dict[str, dict[str, Any]] = {
         "rpm": 10,
         "universe_add_limit": 0,
         "ingest_per_hour": 0,
+        "seat_limit": 1,
         "checkout": False,
     },
     "pro": {
@@ -22,6 +23,7 @@ PLANS: dict[str, dict[str, Any]] = {
         "rpm": 60,
         "universe_add_limit": 10,
         "ingest_per_hour": 2,
+        "seat_limit": 1,
         "checkout": True,
     },
     "team": {
@@ -30,6 +32,7 @@ PLANS: dict[str, dict[str, Any]] = {
         "rpm": 120,
         "universe_add_limit": 50,
         "ingest_per_hour": 6,
+        "seat_limit": 5,
         "checkout": True,
     },
 }
@@ -64,6 +67,10 @@ def ingest_per_hour(plan: str | None) -> int:
     return int(plan_config(plan)["ingest_per_hour"])
 
 
+def seat_limit(plan: str | None) -> int:
+    return int(plan_config(plan).get("seat_limit") or 1)
+
+
 def list_public_plans() -> list[dict[str, Any]]:
     return [
         {
@@ -73,6 +80,7 @@ def list_public_plans() -> list[dict[str, Any]]:
             "rpm": cfg["rpm"],
             "universe_add_limit": cfg["universe_add_limit"],
             "ingest_per_hour": cfg["ingest_per_hour"],
+            "seat_limit": cfg.get("seat_limit", 1),
             "checkout": cfg["checkout"],
         }
         for plan_id, cfg in PLANS.items()

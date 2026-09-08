@@ -180,6 +180,9 @@ export function AccountPanel({
                     {typeof p.universe_add_limit === "number"
                       ? ` · +${p.universe_add_limit} custom tickers`
                       : ""}
+                    {typeof p.seat_limit === "number" && p.seat_limit > 1
+                      ? ` · ${p.seat_limit} seats`
+                      : ""}
                   </p>
                 </div>
                 {p.checkout && !p.current && (
