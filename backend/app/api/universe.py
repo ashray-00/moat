@@ -9,7 +9,7 @@ from app.api.limits import (
     universe_add_limit,
 )
 from app.api.ratelimit import check_rate_limit
-from app.ingest.universe import DEFAULT_UNIVERSE, is_default_ticker
+from app.ingest.universe import default_universe, is_default_ticker
 from app.universe import store as ustore
 
 router = APIRouter(prefix="/universe", tags=["universe"])
@@ -34,7 +34,7 @@ async def get_universe(user_id: RequiredUser):
     used = len(added)
     limit = int(cfg["universe_add_limit"])
     return {
-        "default": list(DEFAULT_UNIVERSE),
+        "default": default_universe(),
         "added": added,
         "limit": limit,
         "used": used,

@@ -43,8 +43,17 @@ class Settings(BaseSettings):
 
     answer_cache_enabled: bool = False
 
-    # Soft per-user ask/agent rate limit (in-process; single instance only).
+    # Soft per-user ask/agent rate limit (in-process unless REDIS_URL is set).
     rate_limit_per_minute: int = 30
+
+    # Comma-separated tickers; empty → builtin mega-cap seed list.
+    moat_default_universe: str = ""
+
+    # Optional shared rate-limit backend. Empty → in-process memory.
+    redis_url: str = ""
+
+    # Comma-separated user ids allowed to call /admin.
+    admin_user_ids: str = ""
 
 
 settings = Settings()

@@ -2,7 +2,7 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 from app.api import universe as universe_api
-from app.ingest.universe import DEFAULT_UNIVERSE
+from app.ingest.universe import default_universe
 from app.universe import store as ustore
 
 
@@ -17,7 +17,7 @@ async def test_get_universe_free(monkeypatch):
     monkeypatch.setattr(universe_api, "get_user_plan", fake_plan)
     monkeypatch.setattr(ustore, "list_user_adds", fake_adds)
     out = await universe_api.get_universe("u1")
-    assert out["default"] == DEFAULT_UNIVERSE
+    assert out["default"] == default_universe()
     assert out["can_modify"] is False
     assert out["limit"] == 0
     assert out["used"] == 0
@@ -159,36 +159,29 @@ async def test_add_cap(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_run_ingest_job_marks_ready(monkeypatch):
-    states = []
+    calls = {"upsert": [], "mark": []}
 
-    async def fake_set(u, t, *, status, error=None):
-        states.append(status)
+    async def fake_upsert(u, t, *, status, error=None):
+        calls["upsert"].append(status)
+        return {"ticker": t, "status": status}
 
     async def fake_ready(_t):
-        return states.count("running") >= 1  # ready after running set
+        return True
 
-    async def fake_ingest(_t):
-        return None
+    async def fake_mark(t, *, status, error=None):
+        calls["mark"].append(status)
 
-    monkeypatch.setattr(ustore, "set_add_status", fake_set)
+    async def fake_enqueue(_t):
+        return None, False
+
+    monkeypatch.setattr(ustore, "upsert_user_add", fake_upsert)
     monkeypatch.setattr(ustore, "company_ready", fake_ready)
-    monkeypatch.setattr(
-        "app.ingest.pipeline.ingest_company", fake_ingest
-    )
+    monkeypatch.setattr(ustore, "mark_waiting_users", fake_mark)
+    monkeypatch.setattr(ustore, "enqueue_ingest_job", fake_enqueue)
 
-    # First company_ready after running → True without calling ingest? 
-    # Logic: set running, then if company_ready return ready.
-    # Make ready True on first check after running to skip ingest.
-    n = {"c": 0}
-
-    async def ready_after_running(_t):
-        n["c"] += 1
-        return n["c"] >= 1
-
-    monkeypatch.setattr(ustore, "company_ready", ready_after_running)
     await ustore.run_ingest_job("u1", "SHOP")
-    assert "running" in states
-    assert states[-1] == "ready"
+    assert calls["upsert"] == ["pending"]
+    assert calls["mark"] == ["ready"]
 
 
 @pytest.mark.asyncio

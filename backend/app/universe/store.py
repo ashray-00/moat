@@ -1,4 +1,4 @@
-"""Per-user ticker additions on top of the shared DEFAULT_UNIVERSE corpus."""
+"""Per-user ticker additions and shared ingest_jobs on the Moat corpus."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ import logging
 from sqlalchemy import text
 
 from app.db import engine
-from app.ingest.universe import DEFAULT_UNIVERSE, is_default_ticker
+from app.ingest.universe import default_universe, is_default_ticker
 
 logger = logging.getLogger(__name__)
 
-ACTIVE_STATUSES = ("pending", "running", "ready", "failed")
 IN_FLIGHT = ("pending", "running")
 
 
@@ -49,7 +48,7 @@ async def list_user_adds(user_id: str) -> list[dict]:
         rows = (
             await conn.execute(
                 text(
-                    "SELECT ticker, status, error, created_at, updated_at "
+                    "SELECT ticker, status, error "
                     "FROM user_ticker_adds WHERE user_id=:u ORDER BY ticker"
                 ),
                 {"u": user_id},
@@ -141,8 +140,9 @@ async def effective_universe(user_id: str) -> list[str]:
     """Defaults plus this user's ready additions (for agent search)."""
     adds = await list_user_adds(user_id)
     ready = [a["ticker"] for a in adds if a["status"] == "ready"]
-    seen = set(DEFAULT_UNIVERSE)
-    out = list(DEFAULT_UNIVERSE)
+    base = default_universe()
+    seen = set(base)
+    out = list(base)
     for t in ready:
         if t not in seen:
             seen.add(t)
@@ -150,29 +150,170 @@ async def effective_universe(user_id: str) -> list[str]:
     return out
 
 
-async def run_ingest_job(user_id: str, ticker: str) -> None:
-    """Background: ingest into shared DB, then mark this user's add ready/failed."""
+async def active_ingest_job(ticker: str) -> dict | None:
     t = ticker.strip().upper()
+    async with engine.begin() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT id, ticker, status, error FROM ingest_jobs "
+                    "WHERE ticker=:t AND status = ANY(:s) "
+                    "ORDER BY id DESC LIMIT 1"
+                ),
+                {"t": t, "s": list(IN_FLIGHT)},
+            )
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+async def enqueue_ingest_job(ticker: str) -> tuple[int | None, bool]:
+    """Insert a pending ingest job if none active. Returns (job_id, created_new)."""
+    t = ticker.strip().upper()
+    existing = await active_ingest_job(t)
+    if existing:
+        return int(existing["id"]), False
+    async with engine.begin() as conn:
+        try:
+            row = (
+                await conn.execute(
+                    text(
+                        "INSERT INTO ingest_jobs (ticker, status) "
+                        "VALUES (:t, 'pending') RETURNING id"
+                    ),
+                    {"t": t},
+                )
+            ).first()
+            return int(row.id), True
+        except Exception:
+            # Unique active-ticker race: another worker inserted first.
+            logger.info("ingest job race for %s; attaching to existing", t)
+    existing = await active_ingest_job(t)
+    if existing:
+        return int(existing["id"]), False
+    return None, False
+
+
+async def mark_waiting_users(ticker: str, *, status: str, error: str | None = None) -> None:
+    t = ticker.strip().upper()
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE user_ticker_adds SET status=:s, error=:e, updated_at=now() "
+                "WHERE ticker=:t AND status = ANY(:inflight)"
+            ),
+            {"s": status, "e": error, "t": t, "inflight": list(IN_FLIGHT)},
+        )
+
+
+async def claim_next_ingest_job() -> dict | None:
+    """Claim one pending job with SKIP LOCKED (multi-worker safe)."""
+    async with engine.begin() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "UPDATE ingest_jobs SET status='running', started_at=now(), "
+                    "updated_at=now() "
+                    "WHERE id = ("
+                    "  SELECT id FROM ingest_jobs WHERE status='pending' "
+                    "  ORDER BY id FOR UPDATE SKIP LOCKED LIMIT 1"
+                    ") RETURNING id, ticker, status"
+                )
+            )
+        ).mappings().first()
+    return dict(row) if row else None
+
+
+async def finish_ingest_job(
+    job_id: int, *, status: str, error: str | None = None
+) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE ingest_jobs SET status=:s, error=:e, finished_at=now(), "
+                "updated_at=now() WHERE id=:id"
+            ),
+            {"s": status, "e": error, "id": job_id},
+        )
+
+
+async def process_ingest_job(job: dict) -> None:
+    """Run SEC ingest for a claimed job and wake waiting user adds."""
+    ticker = job["ticker"]
+    job_id = int(job["id"])
     try:
-        await set_add_status(user_id, t, status="running")
-        # Re-check shared DB in case another user's job finished first.
-        if await company_ready(t):
-            await set_add_status(user_id, t, status="ready", error=None)
+        if await company_ready(ticker):
+            await finish_ingest_job(job_id, status="ready")
+            await mark_waiting_users(ticker, status="ready", error=None)
             return
         from app.ingest.pipeline import ingest_company
 
-        await ingest_company(t)
-        if await company_ready(t):
-            await set_add_status(user_id, t, status="ready", error=None)
+        await ingest_company(ticker)
+        if await company_ready(ticker):
+            await finish_ingest_job(job_id, status="ready")
+            await mark_waiting_users(ticker, status="ready", error=None)
         else:
-            await set_add_status(
-                user_id,
-                t,
-                status="failed",
-                error="Ingest finished but no filings were stored.",
-            )
+            err = "Ingest finished but no filings were stored."
+            await finish_ingest_job(job_id, status="failed", error=err)
+            await mark_waiting_users(ticker, status="failed", error=err)
     except Exception as exc:
-        logger.exception("ingest failed user=%s ticker=%s", user_id, t)
-        await set_add_status(
-            user_id, t, status="failed", error=str(exc)[:300] or "ingest failed"
+        logger.exception("ingest job failed ticker=%s", ticker)
+        err = str(exc)[:300] or "ingest failed"
+        await finish_ingest_job(job_id, status="failed", error=err)
+        await mark_waiting_users(ticker, status="failed", error=err)
+
+
+async def run_ingest_job(user_id: str, ticker: str) -> None:
+    """Enqueue/claim path used by API BackgroundTasks and the worker.
+
+    Ensures this user is pending, then processes one job for the ticker
+    (or attaches to an in-flight shared job).
+    """
+    t = ticker.strip().upper()
+    await upsert_user_add(user_id, t, status="pending", error=None)
+    if await company_ready(t):
+        await mark_waiting_users(t, status="ready", error=None)
+        return
+
+    job_id, created = await enqueue_ingest_job(t)
+    if not created:
+        # Another job is running; user stays pending until mark_waiting_users.
+        return
+
+    # Process immediately when we created the job (single-box / kick).
+    job = {"id": job_id, "ticker": t, "status": "pending"}
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE ingest_jobs SET status='running', started_at=now(), "
+                "updated_at=now() WHERE id=:id AND status='pending'"
+            ),
+            {"id": job_id},
         )
+    await process_ingest_job({**job, "status": "running"})
+
+
+async def list_recent_ingest_jobs(limit: int = 50) -> list[dict]:
+    async with engine.begin() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT id, ticker, status, error, created_at, started_at, finished_at "
+                    "FROM ingest_jobs ORDER BY id DESC LIMIT :n"
+                ),
+                {"n": limit},
+            )
+        ).mappings().all()
+    return [dict(r) for r in rows]
+
+
+async def list_companies(limit: int = 200) -> list[dict]:
+    async with engine.begin() as conn:
+        rows = (
+            await conn.execute(
+                text(
+                    "SELECT ticker, name, cik FROM companies ORDER BY ticker LIMIT :n"
+                ),
+                {"n": limit},
+            )
+        ).mappings().all()
+    return [dict(r) for r in rows]

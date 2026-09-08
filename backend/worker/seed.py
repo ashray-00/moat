@@ -1,10 +1,10 @@
-import asyncio
 from app.ingest.pipeline import ingest_company
-from app.ingest.universe import DEFAULT_UNIVERSE
+from app.ingest.universe import default_universe
+import asyncio
 
 
 async def main():
-    for t in DEFAULT_UNIVERSE:
+    for t in default_universe():
         print("Ingesting", t)
         await ingest_company(t)
 
