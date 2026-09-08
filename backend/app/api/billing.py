@@ -430,7 +430,7 @@ async def webhook(
 
 
 @router.get("/status")
-async def billing_status():
+async def billing_status(_user_id: RequiredUser):
     return {
         "configured": _stripe_key_ready(),
         "webhook_configured": _webhook_ready(),

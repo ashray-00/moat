@@ -51,7 +51,8 @@ async def get_or_create_user(user_id: str, email: str | None = None) -> str:
     return user_id
 
 
-async def get_user_plan(user_id: str) -> str:
+async def get_raw_user_plan(user_id: str) -> str:
+    """Plan stored on the users row (ignores org inheritance)."""
     async with engine.begin() as conn:
         row = (
             await conn.execute(
@@ -61,11 +62,42 @@ async def get_user_plan(user_id: str) -> str:
     return row.plan if row else "free"
 
 
+async def get_user_plan(user_id: str) -> str:
+    """Effective plan: Team org members inherit the owner's Team entitlements."""
+    from app.api.limits import normalize_plan
+    from app.orgs.store import get_org_for_user
+
+    own = normalize_plan(await get_raw_user_plan(user_id))
+    org = await get_org_for_user(user_id)
+    if not org:
+        return own
+    owner_id = org.get("owner_user_id")
+    if not owner_id or owner_id == user_id:
+        return own
+    owner_plan = normalize_plan(await get_raw_user_plan(owner_id))
+    if owner_plan == "team":
+        return "team"
+    return own
+
+
 async def current_user(authorization: str = Header(...)) -> str:
     payload = _decode_bearer(authorization)
     user_id = payload["sub"]
     await get_or_create_user(user_id, payload.get("email"))
     return user_id
+
+
+async def current_user_email(
+    authorization: str = Header(...),
+) -> tuple[str, str]:
+    """Return (user_id, email). Email is required for invite accept binding."""
+    payload = _decode_bearer(authorization)
+    user_id = payload["sub"]
+    email = (payload.get("email") or "").strip()
+    if not email:
+        raise HTTPException(400, "JWT is missing email claim required for this action.")
+    await get_or_create_user(user_id, email)
+    return user_id, email.lower()
 
 
 async def optional_user(
@@ -89,3 +121,4 @@ async def require_user(
 
 OptionalUser = Annotated[str | None, Depends(optional_user)]
 RequiredUser = Annotated[str, Depends(require_user)]
+RequiredUserEmail = Annotated[tuple[str, str], Depends(current_user_email)]

@@ -78,6 +78,20 @@ async def member_count(org_id: str) -> int:
     return int(row.n)
 
 
+async def pending_invite_count(org_id: str) -> int:
+    async with engine.begin() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "SELECT count(*) AS n FROM org_invites "
+                    "WHERE org_id=:o AND status='pending'"
+                ),
+                {"o": org_id},
+            )
+        ).one()
+    return int(row.n)
+
+
 async def create_invite(
     org_id: str, email: str, invited_by: str
 ) -> dict:
@@ -108,15 +122,54 @@ async def get_pending_invite(invite_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-async def accept_invite(invite_id: str, user_id: str, user_email: str | None) -> dict:
-    inv = await get_pending_invite(invite_id)
-    if not inv:
-        raise ValueError("invite_not_found")
-    if user_email and inv["email"] and user_email.strip().lower() != inv["email"]:
-        raise ValueError("email_mismatch")
-    if await get_org_for_user(user_id):
-        raise ValueError("already_in_org")
+async def accept_invite(
+    invite_id: str,
+    user_id: str,
+    user_email: str,
+    *,
+    seat_limit: int,
+) -> dict:
+    """Accept invite bound to JWT email; enforce seat_limit in the same transaction."""
+    em = (user_email or "").strip().lower()
+    if not em:
+        raise ValueError("email_required")
+
     async with engine.begin() as conn:
+        inv = (
+            await conn.execute(
+                text(
+                    "SELECT invite_id, org_id, email, invited_by, status "
+                    "FROM org_invites WHERE invite_id=:i AND status='pending' "
+                    "FOR UPDATE"
+                ),
+                {"i": invite_id},
+            )
+        ).mappings().first()
+        if not inv:
+            raise ValueError("invite_not_found")
+        if (inv["email"] or "").strip().lower() != em:
+            raise ValueError("email_mismatch")
+
+        existing = (
+            await conn.execute(
+                text("SELECT 1 FROM org_members WHERE user_id=:u"),
+                {"u": user_id},
+            )
+        ).first()
+        if existing:
+            raise ValueError("already_in_org")
+
+        n = (
+            await conn.execute(
+                text(
+                    "SELECT count(*)::int AS n FROM org_members WHERE org_id=:o"
+                ),
+                {"o": inv["org_id"]},
+            )
+        ).one()
+        if int(n.n) >= seat_limit:
+            raise ValueError("seat_limit")
+
         await conn.execute(
             text(
                 "INSERT INTO org_members (org_id, user_id, role) "
@@ -130,4 +183,5 @@ async def accept_invite(invite_id: str, user_id: str, user_email: str | None) ->
             ),
             {"i": invite_id},
         )
+
     return await get_org_for_user(user_id) or {}

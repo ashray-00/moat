@@ -73,11 +73,15 @@ CREATE TABLE IF NOT EXISTS facts (
 
 CREATE TABLE IF NOT EXISTS answer_cache (
     id BIGSERIAL PRIMARY KEY,
+    user_id TEXT,
     query TEXT,
     answer TEXT,
     embedding VECTOR(1536),
     created_at TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE answer_cache ADD COLUMN IF NOT EXISTS user_id TEXT;
+CREATE INDEX IF NOT EXISTS answer_cache_user_idx ON answer_cache (user_id);
 
 CREATE INDEX IF NOT EXISTS answer_cache_emb_idx ON answer_cache USING hnsw (embedding vector_cosine_ops);
 

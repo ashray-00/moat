@@ -106,8 +106,16 @@ def make_agent_tools(user_id: str) -> list:
     async def search_filings(query: str, ticker: str, top_k: int = 5) -> str:
         """Search a company's SEC filings for text relevant to query.
         Returns structured excerpts with citation ids (cN)."""
+        t = ticker.strip().upper()
+        allowed = {x.upper() for x in await effective_universe(user_id)}
+        if t not in allowed:
+            return _err(
+                "ticker_not_in_coverage",
+                f"{t} is not in your coverage universe.",
+                ticker=t,
+            )
         k = max(1, min(int(top_k or 5), 8))
-        chunks = await _retrieve(query, ticker, top_k=k)
+        chunks = await _retrieve(query, t, top_k=k)
         if not chunks:
             return _err(
                 "no_filings",
@@ -127,9 +135,23 @@ def make_agent_tools(user_id: str) -> list:
         ]
         return _ok({"ticker": ticker.upper(), "query": query, "excerpts": excerpts})
 
+    async def _require_ticker(ticker: str) -> str | None:
+        t = ticker.strip().upper()
+        allowed = {x.upper() for x in await effective_universe(user_id)}
+        if t not in allowed:
+            return _err(
+                "ticker_not_in_coverage",
+                f"{t} is not in your coverage universe.",
+                ticker=t,
+            )
+        return None
+
     async def get_financial_fact(ticker: str, metric: str, fiscal_year: int) -> str:
         """Get an exact reported financial number from XBRL for a fiscal year.
         metric: revenue or net_income (aliases: sales, earnings)."""
+        denied = await _require_ticker(ticker)
+        if denied:
+            return denied
         key = _normalize_metric(metric)
         if not key:
             return _err(
@@ -142,6 +164,9 @@ def make_agent_tools(user_id: str) -> list:
 
     async def get_metric_series(ticker: str, metric: str, limit: int = 5) -> str:
         """Return recent fiscal-year values for a metric (oldest→newest)."""
+        denied = await _require_ticker(ticker)
+        if denied:
+            return denied
         key = _normalize_metric(metric)
         if not key:
             return _err(
@@ -194,6 +219,9 @@ def make_agent_tools(user_id: str) -> list:
         ticker: str, metric: str, fy_start: int, fy_end: int
     ) -> str:
         """Compute % change of a metric between two fiscal years from XBRL."""
+        denied = await _require_ticker(ticker)
+        if denied:
+            return denied
         key = _normalize_metric(metric)
         if not key:
             return _err(

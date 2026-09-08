@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     anthropic_api_key: str = ""
     groq_api_key: str = ""
+    cohere_api_key: str = ""
 
     model_flagship: str = "openai/gpt-4o"
     model_cheap: str = "groq/llama-3.1-8b-instant"
@@ -33,8 +34,8 @@ class Settings(BaseSettings):
     supabase_url: str = ""
 
     # When true, /ask and user-scoped routes require a valid Bearer JWT.
-    # Default false so local demos work before passwordless auth is enabled.
-    auth_required: bool = False
+    # Default true for safe deploys; set AUTH_REQUIRED=false only for local demos.
+    auth_required: bool = True
 
     frontend_origin: str = "http://localhost:3000"
     frontend_url: str = "http://localhost:3000"
@@ -54,6 +55,13 @@ class Settings(BaseSettings):
 
     # Comma-separated user ids allowed to call /admin.
     admin_user_ids: str = ""
+
+    # Persist LangGraph agent state with AsyncPostgresSaver (same DATABASE_URL).
+    agent_checkpoint: bool = True
+
+    # Rerank: local (CrossEncoder), cohere (hosted API), or none (hybrid only).
+    rerank_provider: str = "local"
+    cohere_rerank_model: str = "rerank-english-v3.0"
 
 
 settings = Settings()

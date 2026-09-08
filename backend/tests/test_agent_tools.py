@@ -5,6 +5,25 @@ import pytest
 from app.agent import tools as tools_mod
 
 
+@pytest.fixture(autouse=True)
+def _allow_all_tickers(monkeypatch):
+    async def fake_universe(user_id):
+        return [
+            "AAPL",
+            "NVDA",
+            "MSFT",
+            "GOOGL",
+            "AMZN",
+            "META",
+            "TSLA",
+            "AMD",
+            "INTC",
+            "JPM",
+        ]
+
+    monkeypatch.setattr(tools_mod, "effective_universe", fake_universe)
+
+
 def test_normalize_metric_aliases():
     assert tools_mod._normalize_metric("Revenue") == "revenue"
     assert tools_mod._normalize_metric("sales") == "revenue"
@@ -41,3 +60,19 @@ async def test_unknown_metric_error():
     data = json.loads(raw)
     assert data["ok"] is False
     assert data["error"] == "unknown_metric"
+
+
+@pytest.mark.asyncio
+async def test_ticker_not_in_coverage(monkeypatch):
+    async def empty_universe(user_id):
+        return ["AAPL"]
+
+    monkeypatch.setattr(tools_mod, "effective_universe", empty_universe)
+    tools = tools_mod.make_agent_tools("u1")
+    fact = next(t for t in tools if t.name == "get_financial_fact")
+    raw = await fact.ainvoke(
+        {"ticker": "ZZZZ", "metric": "revenue", "fiscal_year": 2023}
+    )
+    data = json.loads(raw)
+    assert data["ok"] is False
+    assert data["error"] == "ticker_not_in_coverage"

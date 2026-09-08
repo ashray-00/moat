@@ -11,25 +11,35 @@ from app.config import settings
 
 _hits: dict[str, deque[float]] = defaultdict(deque)
 _redis = None
-_redis_failed = False
 
 
 def _get_redis():
-    global _redis, _redis_failed
-    if _redis_failed or not (settings.redis_url or "").strip():
+    """Return a live Redis client, or None when REDIS_URL is unset.
+
+    When REDIS_URL is set but unreachable, raise 503 (fail closed) — do not
+    silently fall back to per-process memory across replicas.
+    """
+    global _redis
+    url = (settings.redis_url or "").strip()
+    if not url:
         return None
     if _redis is not None:
-        return _redis
+        try:
+            _redis.ping()
+            return _redis
+        except Exception:
+            _redis = None
     try:
         import redis  # type: ignore
 
-        _redis = redis.Redis.from_url(settings.redis_url, decode_responses=True)
-        _redis.ping()
+        client = redis.Redis.from_url(url, decode_responses=True)
+        client.ping()
+        _redis = client
         return _redis
-    except Exception:
-        _redis_failed = True
-        _redis = None
-        return None
+    except Exception as exc:
+        raise HTTPException(
+            503, "Rate limiter unavailable. Try again shortly."
+        ) from exc
 
 
 def _check_memory(key: str, *, cap: int, window: float) -> None:
@@ -44,9 +54,7 @@ def _check_memory(key: str, *, cap: int, window: float) -> None:
 
 def _check_redis(key: str, *, cap: int, window: float) -> None:
     r = _get_redis()
-    if r is None:
-        _check_memory(key, cap=cap, window=window)
-        return
+    assert r is not None
     now = time.time()
     pipe_key = f"moat:rl:{key}"
     try:
@@ -58,13 +66,14 @@ def _check_redis(key: str, *, cap: int, window: float) -> None:
         results = pipe.execute()
         count = int(results[1])
         if count >= cap:
-            # Undo the add we just made when over cap.
             r.zrem(pipe_key, f"{now}")
             raise HTTPException(429, "Rate limit exceeded. Try again shortly.")
     except HTTPException:
         raise
-    except Exception:
-        _check_memory(key, cap=cap, window=window)
+    except Exception as exc:
+        raise HTTPException(
+            503, "Rate limiter unavailable. Try again shortly."
+        ) from exc
 
 
 def check_rate_limit(

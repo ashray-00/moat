@@ -110,6 +110,7 @@ async def _month_usage(user_id: str) -> tuple[int, str]:
 
 
 async def enforce_quota(user_id: str, plan: str) -> None:
+    """Soft pre-check (non-atomic). Prefer ``reserve_quota`` before LLM work."""
     key = normalize_plan(plan)
     limit = monthly_ask_limit(key)
     used, _ = await _month_usage(user_id)
@@ -117,6 +118,67 @@ async def enforce_quota(user_id: str, plan: str) -> None:
         raise HTTPException(
             402,
             f"Monthly {key} limit reached ({limit}). Upgrade to continue.",
+        )
+
+
+async def reserve_quota(user_id: str, plan: str) -> int:
+    """Atomically insert a pending usage row if under the monthly cap.
+
+    Returns ``usage_log.id``. Call ``finalize_usage`` after the request.
+    """
+    key = normalize_plan(plan)
+    limit = monthly_ask_limit(key)
+    async with engine.begin() as conn:
+        row = (
+            await conn.execute(
+                text(
+                    "WITH cnt AS ("
+                    "  SELECT count(*)::int AS used FROM usage_log "
+                    "  WHERE user_id=:u AND created_at >= date_trunc('month', now())"
+                    ") "
+                    "INSERT INTO usage_log "
+                    "(user_id, model, tokens_in, tokens_out, cached_in, cost_usd, latency_ms) "
+                    "SELECT :u, 'pending', 0, 0, 0, 0, 0 FROM cnt "
+                    "WHERE cnt.used < :lim "
+                    "RETURNING id"
+                ),
+                {"u": user_id, "lim": limit},
+            )
+        ).first()
+    if not row:
+        raise HTTPException(
+            402,
+            f"Monthly {key} limit reached ({limit}). Upgrade to continue.",
+        )
+    return int(row.id)
+
+
+async def finalize_usage(
+    usage_id: int,
+    *,
+    model: str = "",
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+    cached_in: int = 0,
+    cost_usd: float = 0.0,
+    latency_ms: int = 0,
+) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                "UPDATE usage_log SET model=:m, tokens_in=:ti, tokens_out=:to, "
+                "cached_in=:ci, cost_usd=:c, latency_ms=:l "
+                "WHERE id=:id"
+            ),
+            {
+                "id": usage_id,
+                "m": model or "unknown",
+                "ti": tokens_in,
+                "to": tokens_out,
+                "ci": cached_in,
+                "c": cost_usd,
+                "l": latency_ms,
+            },
         )
 
 

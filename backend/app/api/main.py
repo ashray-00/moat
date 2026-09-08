@@ -35,8 +35,4 @@ async def health():
         db_ok = True
     except Exception:
         db_ok = False
-    return {
-        "ok": db_ok,
-        "db": db_ok,
-        "auth_required": settings.auth_required,
-    }
+    return {"ok": db_ok, "db": db_ok}
