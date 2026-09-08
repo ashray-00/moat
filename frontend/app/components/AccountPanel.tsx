@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   type BillingMe,
   fetchBillingMe,
+  openBillingPortal,
   startCheckout,
 } from "../lib/ask";
 import { signOut } from "../lib/auth";
@@ -50,11 +51,24 @@ export function AccountPanel({
     setBusyPlan(plan);
     try {
       const { url } = await startCheckout(accessToken, plan);
-      // Full-page redirect to Stripe Checkout Hosted page.
       window.location.assign(url);
     } catch (e) {
       setActionError(
         e instanceof Error ? e.message : "Checkout unavailable right now.",
+      );
+      setBusyPlan(null);
+    }
+  }
+
+  async function onManageBilling() {
+    setActionError(null);
+    setBusyPlan("portal");
+    try {
+      const { url } = await openBillingPortal(accessToken);
+      window.location.assign(url);
+    } catch (e) {
+      setActionError(
+        e instanceof Error ? e.message : "Billing portal unavailable.",
       );
       setBusyPlan(null);
     }
@@ -120,6 +134,25 @@ export function AccountPanel({
             <p className="text-xs text-mist">
               {me.remaining} asks remaining · up to {me.rpm} requests / minute
             </p>
+            {typeof me.universe_add_limit === "number" && (
+              <p className="text-xs text-mist">
+                Custom tickers · {me.universe_adds_used ?? 0} of{" "}
+                {me.universe_add_limit}
+                {me.universe_add_limit === 0
+                  ? " (Pro/Team can add coverage)"
+                  : ""}
+              </p>
+            )}
+            {me.has_stripe_customer && (
+              <button
+                type="button"
+                disabled={busyPlan !== null}
+                onClick={() => void onManageBilling()}
+                className="rounded-chip border border-line px-3 py-1.5 text-xs text-mist hover:border-accent hover:text-ink disabled:opacity-45"
+              >
+                {busyPlan === "portal" ? "Opening…" : "Manage billing"}
+              </button>
+            )}
           </section>
         )}
 
@@ -144,6 +177,9 @@ export function AccountPanel({
                   <p className="mt-0.5 text-xs text-mist">
                     {p.monthly_asks.toLocaleString()} asks / month · {p.rpm}{" "}
                     req/min
+                    {typeof p.universe_add_limit === "number"
+                      ? ` · +${p.universe_add_limit} custom tickers`
+                      : ""}
                   </p>
                 </div>
                 {p.checkout && !p.current && (

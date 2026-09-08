@@ -5,10 +5,13 @@ import type { User } from "@supabase/supabase-js";
 import { AccountPanel } from "./AccountPanel";
 import {
   AskHttpError,
-  addWatchlistTicker,
+  addUniverseTicker,
+  agentStream,
   askStream,
-  fetchWatchlist,
-  runAgent,
+  fetchUniverse,
+  removeUniverseTicker,
+  resumeAgentStream,
+  type UniverseResponse,
 } from "../lib/ask";
 import { getAccessToken, signOut } from "../lib/auth";
 import { ThemeToggle } from "./ThemeToggle";
@@ -17,6 +20,13 @@ type ResearchWorkspaceProps = {
   accessToken: string;
   displayName: string;
   user: User;
+};
+
+type MetricSeries = {
+  ticker?: string;
+  metric?: string;
+  unit?: string;
+  series: { fiscal_year: number; value: number }[];
 };
 
 export function ResearchWorkspace({
@@ -33,24 +43,99 @@ export function ResearchWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<"ask" | "agent">("ask");
-  const [watchlist, setWatchlist] = useState<string[]>([]);
+  const [universe, setUniverse] = useState<UniverseResponse | null>(null);
+  const [addTicker, setAddTicker] = useState("");
+  const [universeBusy, setUniverseBusy] = useState(false);
   const [prior, setPrior] = useState<{ q: string; a: string } | null>(null);
   const [lastQuestion, setLastQuestion] = useState("");
   const [accountOpen, setAccountOpen] = useState(false);
+  const [toolTrail, setToolTrail] = useState<string[]>([]);
+  const [series, setSeries] = useState<MetricSeries | null>(null);
+  const [pendingRunId, setPendingRunId] = useState<string | null>(null);
 
   const threadId = "research";
 
   useEffect(() => {
     let cancelled = false;
-    fetchWatchlist(accessToken)
-      .then((list) => {
-        if (!cancelled) setWatchlist(list);
-      })
-      .catch(() => {});
+    async function load() {
+      try {
+        const data = await fetchUniverse(accessToken);
+        if (!cancelled) setUniverse(data);
+      } catch {
+        /* ignore initial load errors */
+      }
+    }
+    void load();
     return () => {
       cancelled = true;
     };
   }, [accessToken]);
+
+  useEffect(() => {
+    const inflight = universe?.added.some(
+      (a) => a.status === "pending" || a.status === "running",
+    );
+    if (!inflight) return;
+    let cancelled = false;
+    const id = window.setInterval(() => {
+      fetchUniverse(accessToken)
+        .then((data) => {
+          if (!cancelled) setUniverse(data);
+        })
+        .catch(() => {});
+    }, 2500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [accessToken, universe?.added]);
+
+  async function consumeAgentEvents(
+    events: AsyncGenerator<
+      import("../lib/ask").AgentEv,
+      void,
+      unknown
+    >,
+  ) {
+    for await (const ev of events) {
+      if (ev.type === "tool_start") {
+        setToolTrail((t) => [...t, `${ev.name}…`]);
+      } else if (ev.type === "tool_result") {
+        setToolTrail((t) => {
+          const next = [...t];
+          const last = next.length - 1;
+          if (last >= 0 && next[last]!.endsWith("…")) {
+            next[last] = next[last]!.replace(
+              /…$/,
+              ev.ok === false ? " ✕" : " ✓",
+            );
+          }
+          return next;
+        });
+      } else if (ev.type === "answer") {
+        setAnswer(ev.delta);
+      } else if (ev.type === "sources") {
+        setSources(ev.sources);
+      } else if (ev.type === "series") {
+        setSeries(ev.series as MetricSeries);
+      } else if (ev.type === "done") {
+        if (ev.answer) setAnswer(ev.answer);
+        if (ev.sources?.length) setSources(ev.sources);
+        if (ev.status === "needs_human_review" && ev.run_id) {
+          setPendingRunId(ev.run_id);
+        } else {
+          setPendingRunId(null);
+        }
+        if (ev.grounding_ok === false) {
+          setError("Draft used tools but has no [cite:…] markers.");
+        }
+      } else if (ev.type === "warning") {
+        setError(ev.message);
+      } else if (ev.type === "error") {
+        setError(ev.message);
+      }
+    }
+  }
 
   async function ask() {
     const question = q.trim();
@@ -66,12 +151,14 @@ export function ResearchWorkspace({
     setLastQuestion(question);
     setAnswer("");
     setSources([]);
+    setSeries(null);
+    setToolTrail([]);
+    setPendingRunId(null);
     setError(null);
     setBusy(true);
     try {
       if (mode === "agent") {
-        const res = await runAgent(token, question, threadId);
-        setAnswer(res.answer || "No response.");
+        await consumeAgentEvents(agentStream(token, question, threadId));
         return;
       }
       for await (const ev of askStream(question, ticker, {
@@ -97,13 +184,74 @@ export function ResearchWorkspace({
     }
   }
 
-  async function onAddWatch() {
+  async function onHitl(action: "approve" | "rewrite") {
+    if (!pendingRunId) return;
+    const token = (await getAccessToken()) ?? accessToken;
+    if (!token) {
+      setError("Sign in required.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
     try {
-      setWatchlist(await addWatchlistTicker(accessToken, ticker));
+      if (action === "rewrite") {
+        setToolTrail([]);
+      }
+      await consumeAgentEvents(
+        resumeAgentStream(token, pendingRunId, action, threadId),
+      );
+      if (action === "approve") {
+        setPendingRunId(null);
+      }
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not update watchlist");
+      if (e instanceof AskHttpError) setError(e.message);
+      else setError(e instanceof Error ? e.message : "Resume failed");
+    } finally {
+      setBusy(false);
     }
   }
+
+  async function onAddCoverage() {
+    const t = addTicker.trim().toUpperCase();
+    if (!t) return;
+    setUniverseBusy(true);
+    setError(null);
+    try {
+      await addUniverseTicker(accessToken, t);
+      setAddTicker("");
+      setUniverse(await fetchUniverse(accessToken));
+    } catch (e) {
+      if (e instanceof AskHttpError) {
+        setError(e.message);
+        if (e.status === 403 || e.message.toLowerCase().includes("limit")) {
+          setAccountOpen(true);
+        }
+      } else {
+        setError(e instanceof Error ? e.message : "Could not add ticker");
+      }
+    } finally {
+      setUniverseBusy(false);
+    }
+  }
+
+  async function onRemoveCoverage(t: string) {
+    setUniverseBusy(true);
+    setError(null);
+    try {
+      setUniverse(await removeUniverseTicker(accessToken, t));
+    } catch (e) {
+      if (e instanceof AskHttpError) setError(e.message);
+      else setError(e instanceof Error ? e.message : "Could not remove ticker");
+    } finally {
+      setUniverseBusy(false);
+    }
+  }
+
+  const ingestInFlight = universe?.added.some(
+    (a) => a.status === "pending" || a.status === "running",
+  );
+  const atAddCap =
+    !!universe && universe.limit > 0 && universe.used >= universe.limit;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -180,17 +328,123 @@ export function ResearchWorkspace({
           >
             Agent
           </button>
-          <button
-            type="button"
-            onClick={onAddWatch}
-            className="rounded-chip border border-line px-2.5 py-1 text-mist hover:border-accent hover:text-ink"
-          >
-            Watch {ticker}
-          </button>
-          {watchlist.length > 0 && (
-            <span className="font-mono text-stone">
-              {watchlist.join(" · ")}
-            </span>
+        </section>
+
+        <section aria-label="Coverage" className="space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="footnote-label">Coverage</h2>
+            {universe && universe.can_modify && (
+              <p className="font-mono text-xs text-stone">
+                {universe.used}/{universe.limit} custom
+              </p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(universe?.default ?? ["AAPL"]).map((t) => (
+              <button
+                key={`d-${t}`}
+                type="button"
+                onClick={() => setTicker(t)}
+                className={`rounded-chip border px-2 py-1 font-mono text-xs ${
+                  ticker === t
+                    ? "border-accent text-ink"
+                    : "border-line text-mist hover:border-accent hover:text-ink"
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+          {universe && universe.added.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {universe.added.map((a) => {
+                const loading =
+                  a.status === "pending" || a.status === "running";
+                return (
+                  <span
+                    key={`a-${a.ticker}`}
+                    className="inline-flex items-center gap-1 rounded-chip border border-line px-2 py-1 font-mono text-xs text-mist"
+                    title={a.error || a.status}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setTicker(a.ticker)}
+                      className={
+                        ticker === a.ticker ? "text-ink" : "hover:text-ink"
+                      }
+                    >
+                      {a.ticker}
+                      {loading
+                        ? "…"
+                        : a.status === "failed"
+                          ? " !"
+                          : ""}
+                    </button>
+                    {universe.can_modify && (
+                      <button
+                        type="button"
+                        disabled={universeBusy || loading}
+                        onClick={() => void onRemoveCoverage(a.ticker)}
+                        className="text-stone hover:text-ink disabled:opacity-40"
+                        aria-label={`Remove ${a.ticker}`}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {universe?.can_modify ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                value={addTicker}
+                onChange={(e) => setAddTicker(e.target.value.toUpperCase())}
+                placeholder="Add ticker"
+                maxLength={10}
+                disabled={universeBusy || atAddCap || !!ingestInFlight}
+                className="w-28 rounded-chip border border-line bg-transparent px-2 py-1 font-mono text-xs text-ink placeholder:text-stone disabled:opacity-45"
+              />
+              <button
+                type="button"
+                disabled={
+                  universeBusy ||
+                  atAddCap ||
+                  !!ingestInFlight ||
+                  !addTicker.trim()
+                }
+                onClick={() => void onAddCoverage()}
+                className="rounded-chip border border-line px-2.5 py-1 text-xs text-mist hover:border-accent hover:text-ink disabled:opacity-45"
+              >
+                {ingestInFlight
+                  ? "Ingesting…"
+                  : universeBusy
+                    ? "Adding…"
+                    : "Add & ingest"}
+              </button>
+              {atAddCap && (
+                <button
+                  type="button"
+                  className="text-xs text-mist underline underline-offset-2"
+                  onClick={() => setAccountOpen(true)}
+                >
+                  Limit reached — view plans
+                </button>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-stone">
+              Default coverage only.{" "}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-ink"
+                onClick={() => setAccountOpen(true)}
+              >
+                Upgrade
+              </button>{" "}
+              to add tickers (ingest from SEC).
+            </p>
           )}
         </section>
 
@@ -210,6 +464,73 @@ export function ResearchWorkspace({
               </button>
             )}
           </div>
+        )}
+
+        {pendingRunId && (
+          <section
+            aria-label="Review draft"
+            className="animate-fade-up rounded-search border border-line bg-surface px-4 py-3 space-y-3"
+          >
+            <p className="text-sm text-ink">
+              This draft looks like investment advice. You can keep it or ask
+              the agent to rewrite as research-only.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onHitl("approve")}
+                className="rounded-chip border border-accent px-3 py-1.5 text-xs text-ink hover:bg-accent/10 disabled:opacity-45"
+              >
+                Approve draft
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onHitl("rewrite")}
+                className="rounded-chip border border-line px-3 py-1.5 text-xs text-mist hover:border-accent hover:text-ink disabled:opacity-45"
+              >
+                Rewrite without advice
+              </button>
+            </div>
+          </section>
+        )}
+
+        {toolTrail.length > 0 && (
+          <section aria-label="Agent steps" className="animate-fade-up space-y-2">
+            <h2 className="footnote-label">Working</h2>
+            <ol className="space-y-1 font-mono text-xs text-mist">
+              {toolTrail.map((step, i) => (
+                <li key={`${step}-${i}`}>{step}</li>
+              ))}
+            </ol>
+          </section>
+        )}
+
+        {series && series.series?.length > 0 && (
+          <section aria-label="Metric series" className="animate-fade-up space-y-2">
+            <h2 className="footnote-label">
+              {series.ticker} · {series.metric} ({series.unit || "USD"})
+            </h2>
+            <table className="w-full text-left text-sm text-ink">
+              <thead>
+                <tr className="border-b border-line text-xs text-mist">
+                  <th className="py-1.5 font-normal">FY</th>
+                  <th className="py-1.5 font-normal">Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {series.series.map((row) => (
+                  <tr key={row.fiscal_year} className="border-b border-line/60">
+                    <td className="py-1.5 font-mono text-xs">{row.fiscal_year}</td>
+                    <td className="py-1.5 font-mono text-xs">
+                      {row.value.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
         )}
 
         <section aria-label="Ask a research question" className="space-y-3">
