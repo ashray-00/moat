@@ -103,6 +103,54 @@ CREATE TABLE IF NOT EXISTS user_ticker_adds (
 CREATE INDEX IF NOT EXISTS user_ticker_adds_user_status_idx
     ON user_ticker_adds (user_id, status);
 
+-- Shared SEC ingest queue (one active job per ticker).
+CREATE TABLE IF NOT EXISTS ingest_jobs (
+    id BIGSERIAL PRIMARY KEY,
+    ticker TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now(),
+    started_at TIMESTAMPTZ,
+    finished_at TIMESTAMPTZ
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ingest_jobs_one_active_ticker
+    ON ingest_jobs (ticker)
+    WHERE status IN ('pending', 'running');
+
+CREATE INDEX IF NOT EXISTS ingest_jobs_status_idx
+    ON ingest_jobs (status, created_at);
+
+-- Team orgs (Phase 3 multi-seat).
+CREATE TABLE IF NOT EXISTS orgs (
+    org_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    owner_user_id TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS org_members (
+    org_id TEXT NOT NULL REFERENCES orgs(org_id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    created_at TIMESTAMPTZ DEFAULT now(),
+    PRIMARY KEY (org_id, user_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS org_members_user_uidx ON org_members (user_id);
+
+CREATE TABLE IF NOT EXISTS org_invites (
+    invite_id TEXT PRIMARY KEY,
+    org_id TEXT NOT NULL REFERENCES orgs(org_id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    invited_by TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS org_invites_email_idx ON org_invites (email, status);
+
 CREATE TABLE IF NOT EXISTS session_summaries (
     user_id TEXT,
     thread_id TEXT,
