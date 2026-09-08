@@ -1,17 +1,19 @@
 import json
+import time
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
-from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 import litellm
 
-from app.agent.tools import compute_growth, get_financial_fact, search_filings
+from app.agent.tools import AGENT_SYSTEM, make_agent_tools
 from app.config import settings
+from app.gateway.usage import merge_usage, usage_from_response
+from app.safety.guards import is_advice_like
 
-TOOLS = [search_filings, get_financial_fact, compute_growth]
-OPENAI_TOOLS = [convert_to_openai_tool(t) for t in TOOLS]
+# Re-export for API / tests
+__all__ = ["build_agent", "agent", "is_advice_like"]
 
 
 def _messages_for_litellm(messages: list) -> list[dict]:
@@ -21,7 +23,9 @@ def _messages_for_litellm(messages: list) -> list[dict]:
         if isinstance(m, dict):
             out.append(m)
             continue
-        if isinstance(m, HumanMessage):
+        if isinstance(m, SystemMessage):
+            out.append({"role": "system", "content": m.content})
+        elif isinstance(m, HumanMessage):
             out.append({"role": "user", "content": m.content})
         elif isinstance(m, AIMessage):
             item: dict = {"role": "assistant", "content": m.content or ""}
@@ -43,12 +47,19 @@ def _messages_for_litellm(messages: list) -> list[dict]:
                 {
                     "role": "tool",
                     "tool_call_id": m.tool_call_id,
-                    "content": m.content if isinstance(m.content, str) else json.dumps(m.content),
+                    "content": m.content
+                    if isinstance(m.content, str)
+                    else json.dumps(m.content),
                 }
             )
         elif isinstance(m, BaseMessage):
             role = getattr(m, "type", "user")
-            role = {"human": "user", "ai": "assistant", "tool": "tool"}.get(role, role)
+            role = {
+                "human": "user",
+                "ai": "assistant",
+                "tool": "tool",
+                "system": "system",
+            }.get(role, role)
             out.append({"role": role, "content": getattr(m, "content", "") or ""})
         else:
             out.append({"role": "user", "content": str(m)})
@@ -91,46 +102,60 @@ def _to_ai_message(msg) -> AIMessage:
     )
 
 
-async def agent_node(state: MessagesState) -> dict:
-    """LLM decides: answer, or call a tool. Tools use OpenAI function format."""
-    resp = await litellm.acompletion(
-        model=settings.model_flagship,
-        messages=_messages_for_litellm(state["messages"]),
-        tools=OPENAI_TOOLS,
-        tool_choice="auto",
-    )
-    return {"messages": [_to_ai_message(resp.choices[0].message)]}
-
-
-def needs_approval(state: MessagesState) -> str:
-    """Route to a human gate if the last answer reads like advice, else finish/act."""
+def _route_after_agent(state: MessagesState) -> str:
     last = state["messages"][-1]
-    tool_calls = getattr(last, "tool_calls", None)
-    if tool_calls:
+    if getattr(last, "tool_calls", None):
         return "tools"
-    content = (getattr(last, "content", "") or "").lower()
-    if any(
-        w in content
-        for w in ["you should buy", "you should sell", "i recommend buying"]
-    ):
-        return "human_review"
     return END
 
 
-def build_agent():
+def build_agent(user_id: str):
+    """Compile a per-user agent. Returns (compiled_graph, usage_accumulator).
+
+    usage_accumulator is mutated on each LLM call so the API can log real cost.
+    HITL is handled post-hoc in the API (pending runs), not via LangGraph interrupt.
+    """
+    tools = make_agent_tools(user_id)
+    openai_tools = [convert_to_openai_tool(t) for t in tools]
+    usage_acc: dict = {
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "cached_in": 0,
+        "cost_usd": 0.0,
+        "model": settings.model_flagship,
+        "latency_ms": 0,
+    }
+
+    async def agent_node(state: MessagesState) -> dict:
+        msgs = _messages_for_litellm(state["messages"])
+        if not any(m.get("role") == "system" for m in msgs):
+            msgs = [{"role": "system", "content": AGENT_SYSTEM}, *msgs]
+        model = settings.model_flagship
+        t0 = time.perf_counter()
+        resp = await litellm.acompletion(
+            model=model,
+            messages=msgs,
+            tools=openai_tools,
+            tool_choice="auto",
+        )
+        latency = int((time.perf_counter() - t0) * 1000)
+        piece = usage_from_response(resp, model)
+        merge_usage(usage_acc, piece)
+        usage_acc["latency_ms"] = int(usage_acc.get("latency_ms") or 0) + latency
+        return {"messages": [_to_ai_message(resp.choices[0].message)]}
+
     g = StateGraph(MessagesState)
     g.add_node("agent", agent_node)
-    g.add_node("tools", ToolNode(TOOLS))
-    g.add_node("human_review", lambda s: s)
+    g.add_node("tools", ToolNode(tools))
     g.add_edge(START, "agent")
     g.add_conditional_edges(
         "agent",
-        needs_approval,
-        {"tools": "tools", "human_review": "human_review", END: END},
+        _route_after_agent,
+        {"tools": "tools", END: END},
     )
     g.add_edge("tools", "agent")
-    g.add_edge("human_review", END)
-    return g.compile(checkpointer=MemorySaver(), interrupt_before=["human_review"])
+    return g.compile(), usage_acc
 
 
-agent = build_agent()
+_default_graph, _ = build_agent("system")
+agent = _default_graph
