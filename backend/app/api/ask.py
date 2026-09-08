@@ -74,6 +74,8 @@ async def ask(body: AskBody, user_id: OptionalUser):
     async def event_gen():
         answer_text = ""
         model_used = ""
+        tokens_in = tokens_out = cached_in = 0
+        cost_usd = 0.0
         try:
             async for ev in answer_stream(
                 body.query,
@@ -83,8 +85,14 @@ async def ask(body: AskBody, user_id: OptionalUser):
             ):
                 if ev.get("type") == "answer":
                     answer_text += ev.get("delta", "")
-                if ev.get("type") == "meta" and ev.get("model"):
-                    model_used = ev["model"]
+                if ev.get("type") == "meta":
+                    if ev.get("model"):
+                        model_used = ev["model"]
+                    if "tokens_in" in ev:
+                        tokens_in = int(ev.get("tokens_in") or 0)
+                        tokens_out = int(ev.get("tokens_out") or 0)
+                        cached_in = int(ev.get("cached_in") or 0)
+                        cost_usd = float(ev.get("cost_usd") or 0)
                     continue
                 yield f"data: {json.dumps(ev)}\n\n"
             if user_id and answer_text:
@@ -104,6 +112,10 @@ async def ask(body: AskBody, user_id: OptionalUser):
                     await log_usage(
                         user_id,
                         model=model_used,
+                        tokens_in=tokens_in,
+                        tokens_out=tokens_out,
+                        cached_in=cached_in,
+                        cost_usd=cost_usd,
                         latency_ms=latency_ms,
                     )
                 except Exception:
@@ -111,7 +123,12 @@ async def ask(body: AskBody, user_id: OptionalUser):
             if langfuse is not None:
                 try:
                     langfuse.update_current_trace(
-                        outputs={"answer_len": len(answer_text)}
+                        outputs={
+                            "answer_len": len(answer_text),
+                            "tokens_in": tokens_in,
+                            "tokens_out": tokens_out,
+                            "cost_usd": cost_usd,
+                        }
                     )
                 except Exception:
                     logger.debug("langfuse update failed", exc_info=True)

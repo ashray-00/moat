@@ -2,6 +2,7 @@ import litellm
 
 from app.answer.prompts import ANSWER_SYSYTEM, build_context
 from app.gateway.llm import route
+from app.gateway.usage import cost_usd
 from app.retrieval.rerank import retrieve
 from app.safety.guards import (
     advice_disclaimer_needed,
@@ -9,6 +10,30 @@ from app.safety.guards import (
     sanitize_memory_text,
     sanitize_memory_turns,
 )
+
+
+def _usage_from_stream_chunk(part, model: str) -> dict | None:
+    """Pull usage from a streaming chunk when the provider includes it."""
+    u = getattr(part, "usage", None)
+    if u is None and isinstance(part, dict):
+        u = part.get("usage")
+    if u is None:
+        return None
+    tin = int(getattr(u, "prompt_tokens", None) or getattr(u, "input_tokens", 0) or 0)
+    tout = int(
+        getattr(u, "completion_tokens", None) or getattr(u, "output_tokens", 0) or 0
+    )
+    if hasattr(u, "get") and callable(u.get):
+        tin = int(u.get("prompt_tokens") or u.get("input_tokens") or tin or 0)
+        tout = int(u.get("completion_tokens") or u.get("output_tokens") or tout or 0)
+    cached = int(getattr(u, "cache_read_input_tokens", 0) or 0)
+    return {
+        "tokens_in": tin,
+        "tokens_out": tout,
+        "cached_in": cached,
+        "cost_usd": cost_usd(model, tin, tout, cached),
+        "model": model,
+    }
 
 
 async def answer_stream(
@@ -57,14 +82,37 @@ async def answer_stream(
     }
 
     answer = ""
-    stream = await litellm.acompletion(
-        model=model, messages=messages, max_tokens=1024, stream=True
-    )
+    usage_piece: dict | None = None
+    kwargs = {"model": model, "messages": messages, "max_tokens": 1024, "stream": True}
+    try:
+        stream = await litellm.acompletion(
+            **kwargs, stream_options={"include_usage": True}
+        )
+    except TypeError:
+        # Older/provider path without stream_options support.
+        stream = await litellm.acompletion(**kwargs)
+
     async for part in stream:
-        delta = part.choices[0].delta.content
+        maybe = _usage_from_stream_chunk(part, model)
+        if maybe:
+            usage_piece = maybe
+        try:
+            delta = part.choices[0].delta.content
+        except Exception:
+            delta = None
         if delta:
             answer += delta
             yield {"type": "answer", "delta": delta}
+
+    if usage_piece:
+        yield {
+            "type": "meta",
+            "model": model,
+            "tokens_in": usage_piece["tokens_in"],
+            "tokens_out": usage_piece["tokens_out"],
+            "cached_in": usage_piece["cached_in"],
+            "cost_usd": usage_piece["cost_usd"],
+        }
 
     grounded, _ = output_ok(answer)
     if not grounded and answer:
