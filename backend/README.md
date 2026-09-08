@@ -3,7 +3,7 @@
 ```bash
 # from repo root
 source .venv/bin/activate
-# apply schema (once)
+# apply schema (once; safe to re-run)
 psql "$DATABASE_URL" -f backend/app/ingest/schema.sql   # or use a SQL client
 
 uvicorn app.api.main:app --reload --app-dir backend --port 8000
@@ -20,4 +20,44 @@ Key flags in root `.env` / `.env.example`:
 - `AUTH_REQUIRED=true` — JWT required on research routes
 - `FRONTEND_ORIGIN` — CORS allowlist
 - Plans: free / pro / team (monthly asks + per-plan RPM). `GET /billing/me` for usage.
-- Stripe: set `STRIPE_SECRET_KEY`, `STRIPE_PRICE_ID_PRO` (or `STRIPE_PRICE_ID`), `STRIPE_PRICE_ID_TEAM`, and webhook secret for Checkout
+
+## Stripe checklist
+
+1. Create Products **Moat Pro** and **Moat Team** with recurring Prices; copy IDs into `STRIPE_PRICE_ID_PRO` (or legacy `STRIPE_PRICE_ID`) and `STRIPE_PRICE_ID_TEAM`.
+2. Set `STRIPE_SECRET_KEY=sk_test_...` (test) or live key.
+3. **Local webhooks:** `stripe listen --forward-to localhost:8000/billing/webhook` and set `STRIPE_WEBHOOK_SECRET` to the printed `whsec_...`.
+4. **Deployed:** Dashboard webhook → `https://<api>/billing/webhook` for `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`.
+5. Enable Customer Portal (cancel/update) in Stripe Dashboard — Account → Manage billing uses `POST /billing/portal`.
+
+Without the webhook forwarder, Checkout can succeed while `users.plan` stays free until Stripe delivers the event.
+
+## Coverage (tickers)
+
+- Free users see the fixed default universe (seed list).
+- Pro/Team can add custom tickers (async SEC ingest into the **shared** DB — skipped if already ingested) and remove only their adds.
+- Apply schema for `user_ticker_adds`: `psql "$DATABASE_URL" -f backend/app/ingest/schema.sql`
+
+## Safety
+
+- Queries: `input_ok` on Ask/Agent (injection + length).
+- Filings/tools: `sanitize_retrieved` on excerpts.
+- Memory: sanitized when re-injected into Ask/Agent; `PUT /memory` rejects injection-like payloads.
+- Agent HITL: `is_advice_like` on drafts; Ask adds a disclaimer when the query solicits advice.
+- Soft citation check on agent answers that used filing sources.
+
+## Evals & quality gates
+
+Every PR runs **offline** gates (advice HITL, sanitize, citation grounding, numerical match, usage/cost helpers) via unit CI — no DB or LLM keys required:
+
+```bash
+cd backend && python -m app.evals.run --offline-only
+# or: pytest -q tests/test_evals_offline.py
+```
+
+Live Ask + retrieval evals (needs ingested DB + API keys) fail the workflow when below floors (`factual >= 0.70`, `qualitative == 1.0`, offline `== 1.0`):
+
+```bash
+cd backend && python -m app.evals.run --sample=40
+```
+
+Trigger the full live job with **Actions → eval-gate → Run workflow**.
